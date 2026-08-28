@@ -14,7 +14,7 @@ import hemsa
 from .. import cleanup, config, model_manifest, palette as P, winutil
 from . import theme
 
-REPO_URL = "https://github.com/ahmedco88/hemsa"
+REPO_URL = "https://github.com/ahmedco88/hemsa-STT"
 WIDTH = 480
 
 

@@ -15,7 +15,7 @@ Free and open source (MIT). Built by Ahmed Al-Obaidi.
 
 ## Install
 
-1. Download `HemsaSetup-x.y.z.exe` from the [latest release](https://github.com/ahmedco88/hemsa/releases).
+1. Download `HemsaSetup-x.y.z.exe` from the [latest release](https://github.com/ahmedco88/hemsa-STT/releases).
 2. Run it. **Windows will warn you** - see [below](#windows-warnings).
 3. On first launch Hemsa downloads the speech model (about 660 MB, once) and asks
    you to pick a microphone and a push-to-talk key. That is the whole setup.
@@ -87,8 +87,8 @@ crash reporting. Your dictations, history and settings stay in
 ## Run from source
 
 ```
-git clone https://github.com/ahmedco88/hemsa
-cd hemsa
+git clone https://github.com/ahmedco88/hemsa-STT
+cd hemsa-STT
 py -3.12 -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 .venv\Scripts\python.exe -m hemsa

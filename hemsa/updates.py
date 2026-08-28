@@ -25,7 +25,7 @@ import requests
 
 log = logging.getLogger("hemsa.updates")
 
-REPO = "ahmedco88/hemsa"
+REPO = "ahmedco88/hemsa-STT"
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASES_PAGE = f"https://github.com/{REPO}/releases"
 TIMEOUT = 10

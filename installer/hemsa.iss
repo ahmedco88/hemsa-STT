@@ -13,7 +13,7 @@
 #define AppName "Hemsa"
 #define AppVersion "0.3.0"
 #define AppPublisher "Ahmed Al-Obaidi"
-#define AppURL "https://github.com/ahmedco88/hemsa"
+#define AppURL "https://github.com/ahmedco88/hemsa-STT"
 
 [Setup]
 AppId={{7C5C2B1E-9E1D-4E2A-9E3B-1B6F1E4A2D77}
