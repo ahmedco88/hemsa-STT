@@ -52,6 +52,12 @@ running locally, and cleanup is off unless you turn it on.
   <img src="docs/screenshots/tray.png" alt="Hemsa tray menu: cleanup, orb, theme, stats, history, word list, settings" width="220">
 </p>
 
+The word list is the one thing worth setting up. Type a name, place or term the way
+it should be typed, one per line, and close spellings get corrected to it. You never
+have to record what the model got wrong.
+
+<img src="docs/screenshots/wordlist.png" alt="Hemsa word list: one word per line, the way it should be typed" width="380">
+
 ## How it works
 
 - **Speech-to-text:** [Parakeet TDT 0.6B v2](https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8)
@@ -59,8 +65,10 @@ running locally, and cleanup is off unless you turn it on.
   around 40x real time. Model licence: CC-BY-4.0.
 - **Optional cleanup:** a small local model (`qwen3.5:2b`) via [Ollama](https://ollama.com),
   **off by default**. Tidies punctuation and filler words, still entirely on-device.
-- **Dictionary:** your own heard → typed corrections, for names and jargon the model
-  keeps getting wrong.
+- **Word list:** one column of names and jargon the model keeps getting wrong. An
+  exact pass fixes spelling and case, then a local fuzzy pass (difflib, about 0.3 ms,
+  no AI) catches the near-misses. It is built to refuse: an entry for "Claude" will
+  not touch the ordinary word "cloud".
 - Python 3.12, tkinter, pystray, packaged with PyInstaller.
 
 ### What touches the network
