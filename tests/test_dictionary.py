@@ -1,13 +1,13 @@
-"""Runs the dictionary contract vectors against hemsa.dictionary.
+"""Runs the correction contract vectors against hemsa.dictionary.correct.
 
-The vectors (tests/fixtures/dictionary-test-vectors.json) originate from the
-murmur-youtube project (github.com/per-simmons/murmur-youtube, MIT-adjacent Swift/C#
-dictation app) as its cross-implementation test contract - copied here as data so
-this suite doesn't depend on that repo staying cloned on disk. If the correction
-rules ever need to change, murmur-youtube's copy is the one to diff against first.
+tests/fixtures/correction-vectors.json is the specification for the EXACT pass,
+and it is data rather than code so the rules can be read without reading the
+regex that implements them. The fuzzy pass on top of it lives in
+tests/test_wordlist.py; this file deliberately says nothing about it.
 """
 
 import json
+import unicodedata
 from collections import Counter
 from pathlib import Path
 
@@ -15,20 +15,23 @@ import pytest
 
 from hemsa.dictionary import Entry, correct
 
-VECTORS = Path(__file__).resolve().parent / "fixtures" / "dictionary-test-vectors.json"
+VECTORS = Path(__file__).resolve().parent / "fixtures" / "correction-vectors.json"
 CASES = json.loads(VECTORS.read_text(encoding="utf-8"))["cases"]
 
 
 @pytest.mark.parametrize("case", CASES, ids=[c["name"] for c in CASES])
 def test_vector(case):
-    entries = [
-        Entry(e.get("hear", ""), e["write"], e.get("isEnabled", True))
-        for e in case["entries"]
-        if e["kind"] == "correction"      # 'term' entries feed engine biasing only
-    ]
+    entries = [Entry(e["hear"], e["write"], e.get("enabled", True))
+               for e in case["entries"]]
     got, applied = correct(case["input"], entries)
     assert got == case["expected"]
 
-    if "expectedCorrections" in case:
-        want = Counter({c["to"]: c["count"] for c in case["expectedCorrections"]})
-        assert Counter(applied) == +want
+    want = Counter({c["to"]: c["count"] for c in case["corrections"]})
+    assert Counter(applied) == want
+
+
+def test_the_accent_case_really_is_decomposed():
+    """That vector proves NFC normalization only if its input is NFD on disk. A
+    tool that rewrites the file in NFC would turn it into a vacuous pass."""
+    case = next(c for c in CASES if "NFC normalization" in c["name"])
+    assert case["input"] != unicodedata.normalize("NFC", case["input"])

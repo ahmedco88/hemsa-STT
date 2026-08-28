@@ -4,14 +4,13 @@ The user types ONE column - the word exactly as it should be typed. Nothing
 records what the speech model got wrong, so matching has to find the near-miss
 itself. Two passes do that, in this order:
 
-  1. EXACT pass (`correct`) - murmur-youtube's shared behavioural contract,
-     unchanged. Whole matches only, case-insensitive with verbatim output,
+  1. EXACT pass (`correct`) - the behavioural contract in
+     tests/fixtures/correction-vectors.json. Whole matches only, case-insensitive with verbatim output,
      longest match first, glued/hyphenated parts match, NFC-normalized. Driven
      with each list word as its own trigger, so it fixes spelling-correct but
      case-wrong text ("openscribe" -> "OpenScribe") and nothing else.
-     tests/fixtures/dictionary-test-vectors.json is the proof; if correction
-     semantics ever need to change, murmur-youtube's copy is the one to diff
-     against first.
+     Those vectors are the specification: a change to correction semantics
+     starts in that file, not here.
 
   2. FUZZY pass (`_fuzzy`) - normalized span matching for what pass 1 cannot
      reach: a word split across tokens ("g p" -> "GP") and a genuine mishearing
@@ -187,7 +186,7 @@ def save(words: list[str]) -> None:
 
 
 # --------------------------------------------------------------------------
-# Pass 1: the murmur contract. Unchanged - the vectors are the specification.
+# Pass 1: the exact contract. The vectors are the specification.
 # --------------------------------------------------------------------------
 
 def _trigger_regex(hear: str) -> str:

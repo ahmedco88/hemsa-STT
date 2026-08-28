@@ -1,7 +1,7 @@
 """The single-column word list: storage, migration, and the fuzzy pass.
 
-tests/test_dictionary.py still runs murmur's vectors against `correct` unchanged
-- that is the exact-match contract. This file covers the layer above it, and in
+tests/test_dictionary.py runs the contract vectors against `correct`
+- that is the exact-match layer. This file covers the layer above it, and in
 particular the thing that layer can get catastrophically wrong: rewriting an
 ordinary English word because it happened to look like a list entry.
 """

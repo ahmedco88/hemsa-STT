@@ -1,0 +1,347 @@
+{
+  "$comment": [
+    "Behavioural contract for the exact correction pass (hemsa.dictionary.correct).",
+    "",
+    "These are Hemsa's own vectors. The rules below are stated as behaviour, and the",
+    "cases are the specification: a change to correction semantics starts here, not in",
+    "the implementation. Every case must produce exactly the stated output.",
+    "",
+    "  1. Whole matches only  - a rule never bites into a longer word.",
+    "  2. Case-insensitive    - the trigger matches in any case; output is verbatim.",
+    "  3. Longest match first - a longer trigger wins over a shorter overlapping one.",
+    "  4. Glued words match   - parts may be separated by any number of spaces or",
+    "                           hyphens, including none at all.",
+    "  5. Disabled is inert   - a disabled entry changes nothing.",
+    "",
+    "The fuzzy pass that sits on top of this is covered by tests/test_wordlist.py.",
+    "It is deliberately NOT specified here: this file is the exact layer only."
+  ],
+  "version": 1,
+  "cases": [
+    {
+      "name": "basic phrase replacement",
+      "entries": [
+        {
+          "hear": "post gres",
+          "write": "PostgreSQL"
+        }
+      ],
+      "input": "We store it in post gres.",
+      "expected": "We store it in PostgreSQL.",
+      "corrections": [
+        {
+          "to": "PostgreSQL",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "glued together with no separator",
+      "entries": [
+        {
+          "hear": "post gres",
+          "write": "PostgreSQL"
+        }
+      ],
+      "input": "We store it in postgres.",
+      "expected": "We store it in PostgreSQL.",
+      "corrections": [
+        {
+          "to": "PostgreSQL",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "joined by a hyphen",
+      "entries": [
+        {
+          "hear": "post gres",
+          "write": "PostgreSQL"
+        }
+      ],
+      "input": "We store it in Post-Gres.",
+      "expected": "We store it in PostgreSQL.",
+      "corrections": [
+        {
+          "to": "PostgreSQL",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "multiple spaces between parts",
+      "entries": [
+        {
+          "hear": "post gres",
+          "write": "PostgreSQL"
+        }
+      ],
+      "input": "We store it in post  gres.",
+      "expected": "We store it in PostgreSQL.",
+      "corrections": [
+        {
+          "to": "PostgreSQL",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "trigger matches regardless of case",
+      "entries": [
+        {
+          "hear": "post gres",
+          "write": "PostgreSQL"
+        }
+      ],
+      "input": "POST GRES is fine.",
+      "expected": "PostgreSQL is fine.",
+      "corrections": [
+        {
+          "to": "PostgreSQL",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "must not corrupt a longer word that starts the same way",
+      "entries": [
+        {
+          "hear": "post gres",
+          "write": "PostgreSQL"
+        }
+      ],
+      "input": "The postgresql-client and postgression are untouched.",
+      "expected": "The postgresql-client and postgression are untouched.",
+      "corrections": []
+    },
+    {
+      "name": "must not touch either ordinary word alone",
+      "entries": [
+        {
+          "hear": "post gres",
+          "write": "PostgreSQL"
+        }
+      ],
+      "input": "Post the letter, the gres is unrelated.",
+      "expected": "Post the letter, the gres is unrelated.",
+      "corrections": []
+    },
+    {
+      "name": "longest trigger wins over a shorter overlapping one",
+      "entries": [
+        {
+          "hear": "my sequel",
+          "write": "MySQL"
+        },
+        {
+          "hear": "my sequel workbench",
+          "write": "MySQL Workbench"
+        }
+      ],
+      "input": "my sequel workbench",
+      "expected": "MySQL Workbench",
+      "corrections": [
+        {
+          "to": "MySQL Workbench",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "counts repeated hits",
+      "entries": [
+        {
+          "hear": "reddis",
+          "write": "Redis"
+        }
+      ],
+      "input": "reddis, then reddis again, and reddis.",
+      "expected": "Redis, then Redis again, and Redis.",
+      "corrections": [
+        {
+          "to": "Redis",
+          "count": 3
+        }
+      ]
+    },
+    {
+      "name": "punctuation is a boundary",
+      "entries": [
+        {
+          "hear": "reddis",
+          "write": "Redis"
+        }
+      ],
+      "input": "(reddis), \"reddis\"; reddis!",
+      "expected": "(Redis), \"Redis\"; Redis!",
+      "corrections": [
+        {
+          "to": "Redis",
+          "count": 3
+        }
+      ]
+    },
+    {
+      "name": "a possessive still matches - the apostrophe is not a letter",
+      "entries": [
+        {
+          "hear": "reddis",
+          "write": "Redis"
+        }
+      ],
+      "input": "reddis's eviction policy",
+      "expected": "Redis's eviction policy",
+      "corrections": [
+        {
+          "to": "Redis",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "a disabled entry changes nothing",
+      "entries": [
+        {
+          "hear": "reddis",
+          "write": "Redis",
+          "enabled": false
+        }
+      ],
+      "input": "we cache it in reddis.",
+      "expected": "we cache it in reddis.",
+      "corrections": []
+    },
+    {
+      "name": "an empty trigger is inert, not a match on everything",
+      "entries": [
+        {
+          "hear": "   ",
+          "write": "Nope"
+        }
+      ],
+      "input": "nothing should change here.",
+      "expected": "nothing should change here.",
+      "corrections": []
+    },
+    {
+      "name": "single word trigger is honoured when asked for",
+      "entries": [
+        {
+          "hear": "kubernetees",
+          "write": "Kubernetes"
+        }
+      ],
+      "input": "Deployed on kubernetees today.",
+      "expected": "Deployed on Kubernetes today.",
+      "corrections": [
+        {
+          "to": "Kubernetes",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "several independent rules in one pass",
+      "entries": [
+        {
+          "hear": "reddis",
+          "write": "Redis"
+        },
+        {
+          "hear": "post gres",
+          "write": "PostgreSQL"
+        }
+      ],
+      "input": "reddis in front of post gres.",
+      "expected": "Redis in front of PostgreSQL.",
+      "corrections": [
+        {
+          "to": "Redis",
+          "count": 1
+        },
+        {
+          "to": "PostgreSQL",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "empty input is left alone",
+      "entries": [
+        {
+          "hear": "reddis",
+          "write": "Redis"
+        }
+      ],
+      "input": "",
+      "expected": "",
+      "corrections": []
+    },
+    {
+      "name": "replacement containing regex metacharacters is literal",
+      "entries": [
+        {
+          "hear": "see sharp",
+          "write": "C#"
+        }
+      ],
+      "input": "I write see sharp.",
+      "expected": "I write C#.",
+      "corrections": [
+        {
+          "to": "C#",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "trigger containing regex metacharacters is literal",
+      "entries": [
+        {
+          "hear": "dot net",
+          "write": ".NET"
+        }
+      ],
+      "input": "Built with dot net.",
+      "expected": "Built with .NET.",
+      "corrections": [
+        {
+          "to": ".NET",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "a trigger that is already correct is not reported as a correction",
+      "$comment": "The word list drives this pass with hear == write, so most spans it matches are already right. Counting those would report a correction on every sentence.",
+      "entries": [
+        {
+          "hear": "Redis",
+          "write": "Redis"
+        }
+      ],
+      "input": "Redis is already spelled correctly.",
+      "expected": "Redis is already spelled correctly.",
+      "corrections": []
+    },
+    {
+      "name": "accented trigger matches decomposed input (NFC normalization)",
+      "$comment": "Several APIs hand back NFD strings. Without normalizing both sides, an accented trigger silently never fires. Input here is deliberately NFD.",
+      "entries": [
+        {
+          "hear": "café racer",
+          "write": "Café Racer"
+        }
+      ],
+      "input": "a café racer bike",
+      "expected": "a Café Racer bike",
+      "corrections": [
+        {
+          "to": "Café Racer",
+          "count": 1
+        }
+      ]
+    }
+  ]
+}

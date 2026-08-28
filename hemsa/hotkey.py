@@ -1,5 +1,5 @@
 """Hold-to-talk hotkey, single key or a chord (e.g. Ctrl+Win). The key is OBSERVED,
-never swallowed (murmur's Windows rule: a swallowed key-down whose key-up escapes
+never swallowed (the Windows rule: a swallowed key-down whose key-up escapes
 leaves the target app thinking the modifier is stuck down forever).
 
 Hold-delay debounce applies to SINGLE-KEY triggers only. A 2+ key chord (Ctrl+Win)

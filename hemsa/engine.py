@@ -1,5 +1,5 @@
 """Parakeet TDT 0.6B v2 int8 via sherpa-onnx. Config values verified in
-murmur-youtube/docs/PARAKEET-WINDOWS.md against a running transcription.
+the sherpa-onnx Parakeet notes against a running transcription.
 
 ~2 GB RAM resident once loaded; ~40x real time on CPU. Audio over 400 s FAILS
 (fixed encoder position table) - dictation never gets near that, but never feed

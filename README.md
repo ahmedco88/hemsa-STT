@@ -98,8 +98,6 @@ and lets the model live outside Program Files.
   150-250 ms of lag on every single press.
 - Uninstalling leaves your settings and the downloaded model in place unless you
   say otherwise, so reinstalling does not mean downloading 660 MB again.
-- Separate product from HamadaScribe (a cloud-based clinical scribe). Inspired by
-  murmur-youtube, not a fork of it.
 
 ## Licence
 
