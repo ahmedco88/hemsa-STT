@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+!hemsa.spec
+installer/out/
+
+# plugin scratch data (healthcare docs sqlite), not project code
+.claude/

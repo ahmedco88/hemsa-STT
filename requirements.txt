@@ -1,0 +1,10 @@
+sherpa-onnx==1.13.6
+sounddevice
+numpy
+requests
+pystray
+Pillow
+keyboard
+pyperclip
+pytest
+pyinstaller
