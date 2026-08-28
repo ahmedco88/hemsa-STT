@@ -116,13 +116,26 @@ def test_models_dir_prefers_explicit_then_env(tmp_path, monkeypatch):
     assert config.models_dir({}) == config.DATA_DIR / "models" / "parakeet-v2"
 
 
-def test_no_personal_paths_in_source():
-    """The repo goes public: a hardcoded D:\\Coding-Station path would leak the
-    author's machine layout and break model resolution for everyone else."""
-    src = (config.Path(__file__).resolve().parents[1] / "hemsa" / "config.py")
-    text = src.read_text(encoding="utf-8")
-    assert "Coding-Station" not in text
-    assert "local-dictation-lab" not in text
+def test_no_absolute_paths_in_source():
+    """The repo is public: a hardcoded absolute path would leak whoever built it
+    and break model resolution for everyone else. Model dir resolution is config
+    -> env var -> %LOCALAPPDATA%, and none of those is spelled out in the source.
+
+    Matched by SHAPE rather than by listing the offending strings, so this test
+    catches any developer's machine layout and does not have to name one to do it.
+    """
+    import re
+    root = config.Path(__file__).resolve().parents[1] / "hemsa"
+    # the lookbehind is what keeps "https://..." out of a drive-letter match
+    drive = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]{1,2}[A-Za-z0-9_.-]")
+    unix_home = re.compile(r"/(?:home|Users)/[A-Za-z0-9_.-]+")
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        for pattern in (drive, unix_home):
+            for m in pattern.finditer(text):
+                offenders.append(f"{path.name}: {m.group(0)}")
+    assert offenders == [], offenders
 
 
 def test_cleanup_mode_migrates_from_the_old_bool(cfg_path):
