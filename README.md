@@ -5,6 +5,9 @@
 Push-to-talk dictation for Windows. Hold a key (or click the floating orb), talk,
 release, and clean text is typed at your cursor in whatever app you are in.
 
+Similar to Wispr Flow - but free
+Similar to local ones like SuperWhisper or OpenWisper, but better (Minimalistic, Faster)
+
 **Everything runs on your PC.** Your voice is never uploaded, there is no account,
 no API key and no subscription. After the one-time model download, Hemsa works with
 the internet switched off.
