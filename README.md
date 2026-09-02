@@ -11,6 +11,8 @@ the internet switched off.
 
 Free and open source (MIT). Built by Ahmed Al-Obaidi.
 
+![Hemsa dictating into Notepad: hold the key, speak, the text appears at the cursor](docs/screenshots/demo.gif)
+
 ## Install
 
 1. Download `HemsaSetup-x.y.z.exe` from the [latest release](https://github.com/ahmedco88/hemsa-STT/releases).
@@ -39,17 +41,23 @@ run it from source instead (below) - it is the same code.
 
 The floating orb sits above whatever you are working in and never takes your text
 cursor. Click it to dictate, right-click it for the last transcript and the rest.
-The tray icon gets you Meetings, Stats, History, the word list, the theme picker
-and Settings.
 
-The settings window. The engine line tells you the model is loaded and running
-locally, and cleanup is off unless you turn it on.
+![The orb over Notepad after a dictation, with the text at the cursor](docs/screenshots/orb.png)
 
-<img src="docs/screenshots/settings.png" alt="Hemsa settings: push-to-talk key, microphone, engine loaded on this PC, optional cleanup" width="420">
+Settings, and the tray menu. The engine line tells you the model is loaded and
+running locally, and cleanup is off unless you turn it on. The tray menu also has
+Meetings, added after this screenshot was taken.
+
+<p>
+  <img src="docs/screenshots/settings.png" alt="Hemsa settings: push-to-talk key, microphone, engine loaded on this PC, optional cleanup" width="420">
+  <img src="docs/screenshots/tray.png" alt="Hemsa tray menu: cleanup, orb, theme, stats, history, word list, settings" width="220">
+</p>
 
 The word list is the one thing worth setting up. Type a name, place or term the way
 it should be typed, one per line, and close spellings get corrected to it. You never
 have to record what the model got wrong.
+
+<img src="docs/screenshots/wordlist.png" alt="Hemsa word list: one word per line, the way it should be typed" width="380">
 
 ## Meetings
 
