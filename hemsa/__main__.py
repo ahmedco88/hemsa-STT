@@ -9,10 +9,11 @@ import sys
 import tkinter as tk
 from pathlib import Path
 
-from . import config, controller, hotkey as hotkey_mod, model_manifest, palette, winutil
+from . import config, controller, hotkey as hotkey_mod, meeting_jobs, meetings, \
+    model_manifest, palette, winutil
 from .engine import Engine
-from .ui import copy_chip as chip_mod, hud as hud_mod, orb as orb_mod, \
-    orb_menu as orb_menu_mod, theme as theme_mod, tray as tray_mod
+from .ui import copy_chip as chip_mod, hud as hud_mod, meetings_win as meetings_win_mod, \
+    orb as orb_mod, orb_menu as orb_menu_mod, theme as theme_mod, tray as tray_mod
 from .ui.dictionary_win import DictionaryWindow
 from .ui.history_win import HistoryWindow
 from .ui.settings import SettingsWindow
@@ -52,6 +53,8 @@ class App:
         # no reload path - a load failure is permanent until restart).
         self.cfg = cfg
         self._q: queue.Queue = queue.Queue()
+        # before anything that can post a callback naming it
+        self._windows: dict[str, tk.Toplevel] = {}
 
         self.root = root
         self.root.withdraw()
@@ -62,6 +65,12 @@ class App:
 
         self.engine = Engine(self.cfg)
         self.ctl = controller.Controller(self.cfg, self.engine, self.post)
+
+        # on_change fires from the job thread as well as the UI thread, so it is
+        # wrapped in post(): every Tk call below happens on the main thread only.
+        self.jobs = meeting_jobs.MeetingJobs(
+            self.cfg, self.engine, self.ctl,
+            on_change=lambda mid: self.post(self._meetings_changed))
 
         self.hud = hud_mod.Hud(self.root, self.ctl._recorder)
         self.orb = orb_mod.Orb(self.root, self.cfg, self.ctl.orb_click,
@@ -79,10 +88,12 @@ class App:
         self.tray = tray_mod.build(self)
         self.tray.run_detached()
 
-        self._windows: dict[str, tk.Toplevel] = {}
         # 15 ms, not 30: this pump is the only path from the hotkey thread to the
         # recorder gate, so its interval is a direct floor on press-to-listening lag.
         self.root.after(15, self._pump)
+        # after the window system is up: recover() re-queues anything the last run
+        # left mid-flight, and marks a meeting killed while recording as an error.
+        self.root.after(400, self._recover_meetings)
         if self.cfg.get("update_check"):
             self.root.after(4000, lambda: self.check_updates(quiet=True))
 
@@ -100,6 +111,24 @@ class App:
             logging.getLogger("hemsa").exception("queued action failed")
         self.root.after(15, self._pump)
 
+    # ---- meetings ----
+    def _recover_meetings(self) -> None:
+        try:
+            self.jobs.recover()
+        except meetings.MeetingsUnreadable:
+            # a broken store must not stop dictation, which is the daily job
+            logging.getLogger("hemsa").exception("meetings store unreadable at start")
+
+    def _meetings_changed(self) -> None:
+        """Runs on the main thread (App.post). Only the open window cares."""
+        self._refresh_tray()
+        win = self._windows.get("meetings")
+        if win is not None and win.win.winfo_exists():
+            win.refresh()
+
+    def open_meetings(self) -> None:
+        meetings_win_mod.open_meetings(self)
+
     # ---- controller -> UI ----
     def _on_state(self, state: str) -> None:
         self.hud.set_state(state, cleanup_on=self.cfg.get("cleanup_mode") == "ai")
@@ -109,8 +138,16 @@ class App:
             if 0 < wait < 2000:
                 logging.getLogger("hemsa").info("press -> HUD visible in %.0f ms", wait)
         self.orb.set_state(state)
-        self.tray.title = {"idle": "Hemsa - ready", "recording": "Hemsa - listening",
-                           "processing": "Hemsa - typing"}[state]
+        self._refresh_tray()
+
+    def _refresh_tray(self) -> None:
+        """The tray reflects BOTH jobs: dictation state and whether a meeting is
+        being recorded. Called from _on_state and from _meetings_changed, both on
+        the main thread."""
+        meeting = bool(getattr(self, "jobs", None) and self.jobs.recording_id)
+        state = self.ctl.state
+        self.tray.title = tray_mod.title_for(state, meeting)
+        self.tray.icon = tray_mod._icon_image(meeting)
 
     # ---- tray / settings actions (main thread) ----
     def set_cleanup_mode(self, mode: str) -> None:
@@ -141,7 +178,7 @@ class App:
         self.cfg["theme"] = palette.set_theme(name)
         config.save(self.cfg)
         self.orb.set_state(self.ctl.state)
-        self.tray.icon = tray_mod._icon_image(self.ctl.state == "recording")
+        self._refresh_tray()
         self.tray.update_menu()
         for w in self._windows.values():
             if w.win.winfo_exists():
@@ -212,6 +249,14 @@ class App:
         try:
             self.hotkey.unbind()
             self.ctl._recorder.close()
+            # a meeting still recording: close the WAVs cleanly and leave the row
+            # in transcribing, so the next start's recover() picks it up instead
+            # of finding a half-written file and an "interrupted" error.
+            if self.jobs.recording_id:
+                try:
+                    self.jobs.stop_recording()
+                except Exception:
+                    logging.getLogger("hemsa").exception("stopping the meeting recorder")
             self.tray.stop()
         finally:
             self.root.destroy()
@@ -228,6 +273,23 @@ def selftest() -> int:
     print(f"models dir : {config.models_dir(cfg)} ({'found' if config.models_present(cfg) else 'MISSING'})")
     text, applied = dictionary.apply("the g p reviewed it", ["GP"])
     print(f"word list  : {'ok' if text == 'the GP reviewed it' else 'FAIL'} ({text!r})")
+    # against the REAL store, then cleaned up: the point is to prove this PC can
+    # create, read back and delete a meeting row, not to test sqlite.
+    try:
+        mid = meetings.create("import")
+        try:
+            row = meetings.get(mid)
+        finally:
+            # a diagnostic must leave no residue in the live store: a row left in
+            # "transcribing" is picked up by the next start's recover() and
+            # finished as an empty meeting.
+            meetings.delete(mid)
+        ok = row is not None and row["status"] == "transcribing" \
+            and meetings.get(mid) is None
+        print(f"meetings   : {'ok' if ok else 'FAIL'} (created, read back and "
+              f"deleted {mid})")
+    except meetings.MeetingsUnreadable as exc:
+        print(f"meetings   : FAIL ({exc})")
     print(f"ollama     : {cleanup.status(cfg)}")
     if config.models_present(cfg):
         eng = Engine(cfg)

@@ -9,7 +9,17 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 a = Analysis(
     ["launcher.py"],   # NOT hemsa\__main__.py: its relative imports need package context
     pathex=[],
-    binaries=collect_dynamic_libs("sherpa_onnx"),
+    # PyAV is deliberately NOT bundled. Its wheel carries ~25 ffmpeg DLLs, two of
+    # which (libx264, libx265) are GPL in their free builds, and they cannot be
+    # dropped individually: avcodec imports them through its PE import table, so
+    # deleting them fails PyAV at `import av`. Hemsa is MIT, so the packaged build
+    # ships no ffmpeg and meeting file IMPORT is run-from-source only. Recording,
+    # transcription and summaries need none of it. tests/test_packaging_licence.py
+    # fails if "av" comes back here. See THIRD-PARTY-NOTICES.md.
+    binaries=(
+        collect_dynamic_libs("sherpa_onnx")
+        + collect_dynamic_libs("pyaudiowpatch")
+    ),
     # certifi is collected EXPLICITLY. It used to arrive only because something
     # imported requests; if that ever stopped, the model download would fail with
     # SSLCertVerificationError in the packaged build ONLY, never in the venv.
@@ -19,10 +29,13 @@ a = Analysis(
         "pystray._win32",
         "PIL.ImageDraw", "PIL.ImageFont",
         "requests",
+        "pyaudiowpatch",
     ],
+    # Belt and braces: even if something pulls av into the dependency graph, it
+    # must not reach the bundle. See the binaries note above.
+    excludes=["pytest", "matplotlib", "av"],
     hookspath=[],
     runtime_hooks=[],
-    excludes=["pytest", "matplotlib"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

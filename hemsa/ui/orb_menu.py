@@ -66,6 +66,9 @@ class OrbMenu:
                       command=lambda h=self._target: app.post(lambda: ctl.paste_last(h)))
 
         m.add_separator()
+        # posted like every other command here: opening a window does not need the
+        # captured hwnd, but running it inline still fights the menu's own grab.
+        m.add_command(label="Meetings…", command=lambda: app.post(app.open_meetings))
         m.add_command(label="Word list…", command=lambda: app.post(app.open_dictionary))
         m.add_command(label="History…", command=lambda: app.post(app.open_history))
         m.add_command(label="Settings…", command=lambda: app.post(app.open_settings))

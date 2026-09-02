@@ -1,5 +1,10 @@
 sherpa-onnx==1.13.6
 sounddevice
+pyaudiowpatch
+# Meeting FILE IMPORT only, and NOT bundled in the installer: PyAV's wheel
+# carries GPL ffmpeg encoders and Hemsa is MIT. See THIRD-PARTY-NOTICES.md.
+# Recording, transcription and summaries do not need it.
+av
 numpy
 requests
 pystray

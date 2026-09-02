@@ -1,6 +1,6 @@
 ; Inno Setup script for Hemsa.
 ; Build:  .venv\Scripts\pyinstaller.exe hemsa.spec --noconfirm
-;         "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\hemsa.iss
+;         "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer\hemsa.iss
 ; Output: installer\out\HemsaSetup-<version>.exe
 ;
 ; Per-USER install on purpose (PrivilegesRequired=lowest):
@@ -11,7 +11,7 @@
 ;     inconsistent with it anyway
 
 #define AppName "Hemsa"
-#define AppVersion "0.3.0"
+#define AppVersion "0.4.0"
 #define AppPublisher "Ahmed Al-Obaidi"
 #define AppURL "https://github.com/ahmedco88/hemsa-STT"
 
@@ -55,6 +55,11 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; \
 ; which does not exist in an installed build.
 Source: "..\dist\Hemsa\*"; DestDir: "{app}"; \
   Flags: ignoreversion recursesubdirs createallsubdirs
+; The bundle carries other people's libraries (ffmpeg, PortAudio, sherpa-onnx and
+; the rest), several under licences that require the notice to travel WITH the
+; binary. A link in the README does not do that for someone who only ran the exe.
+Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\Hemsa.exe"

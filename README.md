@@ -5,16 +5,11 @@
 Push-to-talk dictation for Windows. Hold a key (or click the floating orb), talk,
 release, and clean text is typed at your cursor in whatever app you are in.
 
-Similar to WisprFlow - but free & local (does not send your voice outside your machine).
-Similar to local STT agents (like SuperWhisper or OpenWisper), but better (more minimalistic, faster)
-
 **Everything runs on your PC.** Your voice is never uploaded, there is no account,
 no API key and no subscription. After the one-time model download, Hemsa works with
 the internet switched off.
 
 Free and open source (MIT). Built by Ahmed Al-Obaidi.
-
-![Hemsa dictating into Notepad: hold the key, speak, the text appears at the cursor](docs/screenshots/demo.gif)
 
 ## Install
 
@@ -44,22 +39,45 @@ run it from source instead (below) - it is the same code.
 
 The floating orb sits above whatever you are working in and never takes your text
 cursor. Click it to dictate, right-click it for the last transcript and the rest.
+The tray icon gets you Meetings, Stats, History, the word list, the theme picker
+and Settings.
 
-![The orb over Notepad after a dictation, with the text at the cursor](docs/screenshots/orb.png)
+The settings window. The engine line tells you the model is loaded and running
+locally, and cleanup is off unless you turn it on.
 
-Settings, and the tray menu. The engine line tells you the model is loaded and
-running locally, and cleanup is off unless you turn it on.
-
-<p>
-  <img src="docs/screenshots/settings.png" alt="Hemsa settings: push-to-talk key, microphone, engine loaded on this PC, optional cleanup" width="420">
-  <img src="docs/screenshots/tray.png" alt="Hemsa tray menu: cleanup, orb, theme, stats, history, word list, settings" width="220">
-</p>
+<img src="docs/screenshots/settings.png" alt="Hemsa settings: push-to-talk key, microphone, engine loaded on this PC, optional cleanup" width="420">
 
 The word list is the one thing worth setting up. Type a name, place or term the way
 it should be typed, one per line, and close spellings get corrected to it. You never
 have to record what the model got wrong.
 
-<img src="docs/screenshots/wordlist.png" alt="Hemsa word list: one word per line, the way it should be typed" width="380">
+## Meetings
+
+Hemsa can also record a meeting and write it up afterwards. It captures two
+channels: your microphone, and whatever is coming out of your speakers, so both
+sides of a call are transcribed and labelled.
+
+Like dictation, all of it happens on your PC. Nothing is uploaded.
+
+**Importing a file you already have** (`.m4a`, `.mp4`, `.mp3`) works only when you
+run Hemsa from source, with `pip install av`. It is left out of the installer on
+purpose: the ffmpeg build that PyAV ships includes GPL-licensed encoders, and
+Hemsa is MIT. Recording, transcription and summaries need none of it. Details in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+**Two things to be clear about before you use it.**
+
+- **Consent is your responsibility.** Hemsa records the other party silently, and
+  they have no way of knowing. In several Australian states, and in many other
+  places, recording a private conversation without every party's consent is an
+  offence, whether or not you are part of that conversation. Get consent first.
+- **The summary is machine-generated and unverified.** The transcript comes from a
+  speech model and the summary and action list come from a small local language
+  model. Both make mistakes: mishearings, missed points, and statements that are
+  subtly wrong about who said what or what was decided. Action items carry no owner
+  on purpose, because the model cannot reliably work out whose job something is.
+  **Read the transcript before you rely on any of it.** It is a draft to check,
+  never a record, and it is not suitable as a clinical or legal document.
 
 ## How it works
 
@@ -72,6 +90,10 @@ have to record what the model got wrong.
   exact pass fixes spelling and case, then a local fuzzy pass (difflib, about 0.3 ms,
   no AI) catches the near-misses. It is built to refuse: an entry for "Claude" will
   not touch the ordinary word "cloud".
+- **Meetings:** system audio is captured with WASAPI loopback (PyAudioWPatch),
+  long recordings are cut on silence into chunks before transcription, and the
+  summary uses the same local `qwen3.5:2b` as cleanup. Imported files are decoded
+  with PyAV. Meetings are stored in `%LOCALAPPDATA%\Hemsa\`, like everything else.
 - Python 3.12, tkinter, pystray, packaged with PyInstaller.
 
 ### What touches the network
@@ -112,7 +134,7 @@ Other commands:
 
 ```
 .venv\Scripts\pyinstaller.exe hemsa.spec --noconfirm
-"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\hemsa.iss
+"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer\hemsa.iss
 ```
 
 `dist\Hemsa\Hemsa.exe` is the packaged app; the installer lands in `installer\out\`.
@@ -129,4 +151,7 @@ and lets the model live outside Program Files.
 
 ## Licence
 
-MIT - see [LICENSE](LICENSE). The speech model is licensed separately (CC-BY-4.0).
+MIT - see [LICENSE](LICENSE). The speech model is licensed separately (CC-BY-4.0),
+and the installed app bundles other people's libraries under their own licences:
+see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), which also records an
+unresolved licence question about the ffmpeg libraries used for file import.

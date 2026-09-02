@@ -28,6 +28,8 @@ class Engine:
         self._recognizer = None
         self._error: str | None = None
         self._ready = threading.Event()
+        self._lock = threading.Lock()
+        self._busy = 0
         threading.Thread(target=self._load, daemon=True, name="engine-load").start()
 
     def _load(self) -> None:
@@ -62,12 +64,22 @@ class Engine:
     def error(self) -> str | None:
         return self._error
 
+    @property
+    def busy(self) -> bool:
+        """True while a transcription is decoding - meeting jobs yield on this."""
+        return bool(self._busy)
+
     def transcribe(self, audio: np.ndarray) -> str:
         """16 kHz mono float32 in [-1, 1] -> text. Raises RuntimeError if load failed."""
         self._ready.wait()
         if self._recognizer is None:
             raise RuntimeError(self._error or "engine not loaded")
-        stream = self._recognizer.create_stream()
-        stream.accept_waveform(SAMPLE_RATE, audio)
-        self._recognizer.decode_stream(stream)
-        return stream.result.text.strip()
+        with self._lock:
+            self._busy += 1
+            try:
+                stream = self._recognizer.create_stream()
+                stream.accept_waveform(SAMPLE_RATE, audio)
+                self._recognizer.decode_stream(stream)
+                return stream.result.text.strip()
+            finally:
+                self._busy -= 1

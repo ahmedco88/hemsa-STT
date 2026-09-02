@@ -9,3 +9,7 @@ installer/out/
 
 # plugin scratch data (healthcare docs sqlite), not project code
 .claude/
+
+# isolated worktrees and subagent-driven-development scratch (ledgers, briefs)
+.worktrees/
+.superpowers/

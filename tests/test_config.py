@@ -169,3 +169,16 @@ def test_legacy_cleanup_key_is_dropped_on_save(cfg_path):
 
 def test_every_cleanup_mode_has_a_label():
     assert set(config.CLEANUP_LABELS) == set(config.CLEANUP_MODES)
+
+
+def test_meeting_treatment_defaults_to_the_summary_pass():
+    assert config.DEFAULTS["meeting_treatment"] == "ai"
+
+
+def test_meeting_treatment_round_trips(cfg_path):
+    """save() keeps only known keys, so a new setting that never reached DEFAULTS
+    would be silently dropped on the next save."""
+    cfg = config.load()
+    cfg["meeting_treatment"] = "fast"
+    config.save(cfg)
+    assert config.load()["meeting_treatment"] == "fast"
