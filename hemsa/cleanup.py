@@ -6,6 +6,8 @@ No retries, no streaming, no sentinel strings - one attempt, one boundary.
 
 import logging
 import re
+import shutil
+import subprocess
 import time
 
 import requests
@@ -125,3 +127,30 @@ def status(cfg: dict) -> str:
         return "ready" if any(n.startswith(base) for n in names) else "no model"
     except Exception:
         return "down"
+
+
+def start_server() -> str:
+    """Start `ollama serve` on this PC. Returns "" on success, else why not.
+
+    Detached on purpose: the user pressed a button because they want summaries
+    from now on, not only until Hemsa quits. Started as a child of Hemsa it would
+    inherit our console handles and die with us, which would look like the button
+    not working the next time they open the app. This only launches what is
+    already installed - it never downloads anything - so a missing Ollama is
+    reported rather than fetched."""
+    exe = shutil.which("ollama")
+    if not exe:
+        return ("Could not find Ollama on this PC. Install it from ollama.com, "
+                "then press Check again.")
+    try:
+        subprocess.Popen(
+            [exe, "serve"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, close_fds=True,
+            creationflags=subprocess.DETACHED_PROCESS
+            | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW)
+    except OSError as exc:
+        log.exception("could not start ollama")
+        return f"Could not start Ollama: {exc}"
+    log.info("started ollama serve from %s", exe)
+    return ""

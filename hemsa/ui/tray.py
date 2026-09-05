@@ -36,8 +36,9 @@ def title_for(state: str, meeting: bool = False) -> str:
 
 def build(app) -> pystray.Icon:
     """app: the App object in __main__ (exposes cfg, post, and the actions)."""
-    def item(label, action, checked=None):
-        return pystray.MenuItem(label, lambda: app.post(action), checked=checked)
+    def item(label, action, checked=None, default=False):
+        return pystray.MenuItem(label, lambda: app.post(action), checked=checked,
+                                default=default)
 
     def cleanup_item(mode):
         return pystray.MenuItem(
@@ -51,20 +52,18 @@ def build(app) -> pystray.Icon:
             lambda: app.post(lambda: app.set_theme(name)),
             checked=lambda i: P.current() == name, radio=True)
 
+    # Short on purpose: every page is one click away inside the window. What stays
+    # here is what you want WITHOUT opening it - the quick toggles and the theme.
     menu = pystray.Menu(
+        item("Open Hemsa", app.open_home, default=True),
+        item("Meetings…", app.open_meetings),
+        pystray.Menu.SEPARATOR,
         pystray.MenuItem("Cleanup", pystray.Menu(
             *(cleanup_item(m) for m in config.CLEANUP_MODES))),
         item("Show orb", app.toggle_orb, checked=lambda i: app.cfg["show_orb"]),
+        item("Pause hotkey", app.toggle_hotkey, checked=lambda i: not app.cfg["hotkey_enabled"]),
         pystray.MenuItem("Theme", pystray.Menu(*(theme_item(n) for n in P.CHOICES))),
         pystray.Menu.SEPARATOR,
-        item("Meetings…", app.open_meetings),
-        item("Stats…", app.open_stats),
-        item("History…", app.open_history),
-        item("Word list…", app.open_dictionary),
-        item("Settings…", app.open_settings),
-        pystray.Menu.SEPARATOR,
-        item("Pause hotkey", app.toggle_hotkey, checked=lambda i: not app.cfg["hotkey_enabled"]),
-        item("About Hemsa…", app.open_about),
         item("Check for updates…", app.check_updates),
         item("Quit", app.quit),
     )

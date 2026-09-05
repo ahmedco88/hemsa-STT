@@ -54,3 +54,15 @@ def summary(data: dict | None = None, today: dt.date | None = None) -> dict:
             for k in _EMPTY_DAY:
                 out[b][k] += day.get(k, 0)
     return out
+
+
+def last_days(n: int, data: dict | None = None, today: dt.date | None = None) -> list[dict]:
+    """The trailing n days, oldest first, zero-filled - for the Home day dots."""
+    data = load() if data is None else data
+    today = today or dt.date.today()
+    out = []
+    for back in range(n - 1, -1, -1):
+        iso = (today - dt.timedelta(days=back)).isoformat()
+        day = data["days"].get(iso, _EMPTY_DAY)
+        out.append({"date": iso, **{k: day.get(k, 0) for k in _EMPTY_DAY}})
+    return out

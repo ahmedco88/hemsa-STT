@@ -11,7 +11,7 @@
 ;     inconsistent with it anyway
 
 #define AppName "Hemsa"
-#define AppVersion "0.4.0"
+#define AppVersion "0.5.2"
 #define AppPublisher "Ahmed Al-Obaidi"
 #define AppURL "https://github.com/ahmedco88/hemsa-STT"
 
@@ -66,12 +66,16 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{app}\Hemsa.exe"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\Hemsa.exe"; Tasks: desktopicon
 
 [Registry]
-; Delete-only: the app owns this value (winutil.set_autostart). Without
-; uninsdeletevalue an uninstall leaves HKCU\...\Run pointing at a deleted exe,
-; which then fails silently on every login forever. No ValueData here, so this
-; never CREATES the value - autostart stays off unless the user asks for it.
+; UNINSTALL-only, and the flag list is the whole point (fixed 2026-09-03).
+; The app owns this value (winutil.set_autostart); without uninsdeletevalue an
+; uninstall leaves the Run key pointing at a deleted exe, which then fails
+; silently on every login forever. No ValueData here, so this never CREATES it.
+; `deletevalue` must NOT come back: it fires on INSTALL, so every upgrade
+; silently switched autostart off while the Settings toggle still read "on".
+; Found on Ahmed's own PC 2026-09-03, where Hemsa had quietly stopped starting
+; at login. tests/test_autostart.py fails the build if it returns.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
-  ValueType: none; ValueName: "Hemsa"; Flags: deletevalue uninsdeletevalue
+  ValueType: none; ValueName: "Hemsa"; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\Hemsa.exe"; Description: "Start Hemsa now"; \

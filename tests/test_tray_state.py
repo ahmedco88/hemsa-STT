@@ -22,12 +22,17 @@ class FakeTray:
 
 
 class Fake:
-    """Just enough of App for the unbound _refresh_tray call."""
+    """Just enough of App for the unbound _refresh_tray call and tray.build."""
+
+    cfg = {"show_orb": True, "hotkey_enabled": True, "cleanup_mode": "off"}
 
     def __init__(self, state, recording_id):
         self.tray = FakeTray()
         self.ctl = type("Ctl", (), {"state": state})()
         self.jobs = type("Jobs", (), {"recording_id": recording_id})()
+
+    def __getattr__(self, name):          # any action the menu wires up
+        return lambda *a, **k: None
 
 
 def test_titles_keep_the_dictation_states_unchanged():
@@ -54,3 +59,13 @@ def test_a_dictation_state_alone_does_not_repaint_the_icon_red(app_mod):
     app_mod.App._refresh_tray(app)
     assert app.tray.title == "Hemsa - listening"
     assert app.tray.icon.tobytes() == tray._icon_image(False).tobytes()
+
+
+def test_tray_menu_is_the_short_one(app_mod):
+    """Every page is one click away inside the window; the tray keeps only what
+    you want WITHOUT opening it."""
+    from hemsa.ui import tray
+    labels = [getattr(i, "text", None) for i in tray.build(Fake("idle", None)).menu]
+    assert labels[:2] == ["Open Hemsa", "Meetings…"]
+    for gone in ("History…", "Stats…", "Word list…", "Settings…", "About Hemsa…"):
+        assert gone not in labels

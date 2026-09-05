@@ -36,7 +36,7 @@ def test_import_pipeline_reaches_done(env, monkeypatch, tmp_path):
     monkeypatch.setattr(meeting_jobs.importer, "to_wav",
                         lambda src, dest: (dest.write_bytes(b"RIFF"), 42.0)[1])
     monkeypatch.setattr(meeting_jobs.longform, "transcribe_wav",
-                        lambda path, ch, eng, words, wait_idle:
+                        lambda path, ch, eng, words, wait_idle, on_progress=None:
                         [{"start": 0.0, "end": 4.0, "channel": ch, "text": "hi"}])
     monkeypatch.setattr(meeting_jobs.summarize, "summarize",
                         lambda segs, cfg: ("- talked", "- none"))
@@ -148,7 +148,7 @@ def test_a_capture_abort_ends_in_error_with_the_audio_kept(env, monkeypatch):
     monkeypatch.setattr(meeting_jobs.meeting_audio, "MeetingRecorder", FakeRecorder)
     monkeypatch.setattr(meeting_jobs.dictionary, "load", lambda: [])
     monkeypatch.setattr(meeting_jobs.longform, "transcribe_wav",
-                        lambda path, ch, eng, words, wait_idle:
+                        lambda path, ch, eng, words, wait_idle, on_progress=None:
                         [{"start": 0.0, "end": 1.0, "channel": ch,
                           "text": "half a call"}])
     monkeypatch.setattr(meeting_jobs.summarize, "summarize",

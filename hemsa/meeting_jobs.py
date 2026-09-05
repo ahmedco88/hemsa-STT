@@ -28,6 +28,9 @@ class MeetingJobs:
         self.controller = controller
         self.on_change = on_change
         self.recording_id: str | None = None
+        # (done, total) for the transcription bar. Written from the worker
+        # thread and READ by the UI timer - plain ints, never a Tk callback.
+        self.progress: tuple[int, int] = (0, 0)
         self._recorder: meeting_audio.MeetingRecorder | None = None
         self._q: queue.Queue[str] = queue.Queue()
         threading.Thread(target=self._worker, daemon=True,
@@ -129,15 +132,25 @@ class MeetingJobs:
             pending.unlink()
         if not m["segments"]:
             meetings.set_status(mid, "transcribing")
+            self.progress = (0, 0)
             self.on_change(mid)
             words = dictionary.load()
             segs = []
+            # two channels are two runs of chunks, so the bar counts BOTH as one
+            # job: an offset keeps it moving forward instead of restarting at 0
+            base = [0]
+
+            def _progress(done, total, base=base):
+                self.progress = (base[0] + done, base[0] + total)
+
             for name, channel in (("me.wav", "me"), ("them.wav", "them"),
                                   ("import.wav", "me")):
                 path = d / name
                 if path.exists():
                     segs.extend(longform.transcribe_wav(
-                        path, channel, self.engine, words, self._wait_idle))
+                        path, channel, self.engine, words, self._wait_idle,
+                        on_progress=_progress))
+                    base[0] = self.progress[1]
             segs = longform.merge(segs)
             meetings.save_segments(mid, segs)
             m = meetings.get(mid)
@@ -146,6 +159,7 @@ class MeetingJobs:
         if (self.cfg.get("meeting_treatment", "ai") == "ai" and m["segments"]
                 and not m["summary"]):
             meetings.set_status(mid, "summarising")
+            self.progress = (0, 0)
             self.on_change(mid)
             result = summarize.summarize(m["segments"], self.cfg)
             if result is not None:

@@ -1,6 +1,7 @@
 """Response-guard tests for the cleanup boundary - canned responses, no Ollama needed.
 Fixture set required after ANY edit to SYSTEM_PROMPT (see cleanup.py comment)."""
 
+from hemsa import cleanup
 from hemsa.cleanup import sanitize
 
 DICTATED = "um so the patient needs a repeat script for metformin and you know a follow up in two weeks"
@@ -53,3 +54,41 @@ def test_doubled_output_rejected():
 
 def test_empty_rejected():
     assert sanitize("   ", DICTATED) is None
+
+
+def test_start_server_reports_a_missing_ollama_instead_of_raising(monkeypatch):
+    """The button is offered to people who may not have Ollama at all. A traceback
+    behind a windowed exe is invisible; a sentence on the warning line is not."""
+    monkeypatch.setattr(cleanup.shutil, "which", lambda name: None)
+
+    problem = cleanup.start_server()
+
+    assert "ollama.com" in problem.lower()
+
+
+def test_start_server_launches_detached_and_says_nothing_on_success(monkeypatch):
+    """Detached matters: as a plain child it dies with Hemsa, so the next launch
+    would find Ollama down again and the button would look broken."""
+    seen = {}
+
+    def fake_popen(cmd, **kw):
+        seen["cmd"] = cmd
+        seen["flags"] = kw.get("creationflags", 0)
+        return object()
+
+    monkeypatch.setattr(cleanup.shutil, "which", lambda name: r"C:\ollama\ollama.exe")
+    monkeypatch.setattr(cleanup.subprocess, "Popen", fake_popen)
+
+    assert cleanup.start_server() == ""
+    assert seen["cmd"] == [r"C:\ollama\ollama.exe", "serve"]
+    assert seen["flags"] & cleanup.subprocess.DETACHED_PROCESS
+
+
+def test_start_server_surfaces_an_oserror(monkeypatch):
+    def boom(cmd, **kw):
+        raise OSError("access denied")
+
+    monkeypatch.setattr(cleanup.shutil, "which", lambda name: r"C:\ollama\ollama.exe")
+    monkeypatch.setattr(cleanup.subprocess, "Popen", boom)
+
+    assert "access denied" in cleanup.start_server()

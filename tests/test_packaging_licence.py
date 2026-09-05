@@ -54,3 +54,20 @@ def test_import_without_pyav_explains_itself(monkeypatch, tmp_path):
     message = str(exc.value).lower()
     assert "from source" in message
     assert "recording still works" in message
+
+
+def test_spec_ships_the_fonts():
+    """The typefaces load from Path(__file__).parent / "fonts"; a bundle without
+    them falls back silently to Cambria / Segoe UI, which no test would notice."""
+    assert '("hemsa/fonts/*.ttf", "hemsa/fonts")' in SPEC
+    # OFL 1.1 clause 2: the licence travels WITH the font. Dropping this one line
+    # from the spec redistributes five fonts with no licence text and stays green.
+    assert '("hemsa/fonts/*.txt", "hemsa/fonts")' in SPEC
+    assert len(list((ROOT / "hemsa" / "fonts").glob("*.ttf"))) == 5
+    assert len(list((ROOT / "hemsa" / "fonts").glob("OFL-*.txt"))) == 2
+
+
+def test_notices_name_both_font_families():
+    text = (ROOT / "THIRD-PARTY-NOTICES.md").read_text(encoding="utf-8")
+    assert "Instrument Serif" in text and "Figtree" in text
+    assert "SIL Open Font" in text

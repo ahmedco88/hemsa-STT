@@ -43,3 +43,12 @@ def test_summary_empty():
     s = stats.summary({"days": {}}, dt.date(2026, 8, 23))
     assert s["today"]["n"] == s["week"]["n"] == s["all"]["n"] == 0
     assert s["first"] is None
+
+
+def test_last_days_fills_gaps_oldest_first():
+    today = dt.date(2026, 9, 3)
+    data = {"days": {"2026-09-03": {"n": 1, "words": 10, "audio_s": 5.0, "proc_ms": 1},
+                     "2026-09-01": {"n": 2, "words": 20, "audio_s": 9.0, "proc_ms": 2}}}
+    days = stats.last_days(3, data, today)
+    assert [d["date"] for d in days] == ["2026-09-01", "2026-09-02", "2026-09-03"]
+    assert days[1]["n"] == 0 and days[2]["words"] == 10

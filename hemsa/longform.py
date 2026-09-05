@@ -75,20 +75,31 @@ def plan_chunks(n_samples, rate, audio_getter):
     return chunks
 
 
-def transcribe_wav(path, channel, engine, words, wait_idle):
+def transcribe_wav(path, channel, engine, words, wait_idle, on_progress=None):
     """WAV -> [{"start", "end", "channel", "text"}], engine-safe chunking.
-    Reads the WAV per chunk (WavReader), never loads it whole."""
+    Reads the WAV per chunk (WavReader), never loads it whole.
+
+    on_progress(done, total) is called after each chunk, for the UI's progress
+    bar. It is called on the WORKER thread, so a caller must only store the
+    numbers - never touch Tk from it."""
     from . import dictionary
     out = []
     with WavReader(path) as reader:
-        for a, b in plan_chunks(reader.n_samples, SAMPLE_RATE, reader.slice):
+        chunks = plan_chunks(reader.n_samples, SAMPLE_RATE, reader.slice)
+        if on_progress:
+            on_progress(0, len(chunks))
+        for i, (a, b) in enumerate(chunks, 1):
             clip = reader.slice(a, b)
-            if len(clip) == 0:
-                continue
-            if float(np.sqrt(np.mean(clip ** 2))) < SILENCE_RMS:
+            # every path out of this iteration ticks the counter: a run of silent
+            # chunks would otherwise stall the bar and read as a hang
+            if len(clip) == 0 or float(np.sqrt(np.mean(clip ** 2))) < SILENCE_RMS:
+                if on_progress:
+                    on_progress(i, len(chunks))
                 continue
             wait_idle()                  # dictation always wins between chunks
             text = engine.transcribe(clip)
+            if on_progress:
+                on_progress(i, len(chunks))
             if not text:
                 continue
             text, _ = dictionary.apply(text, words)

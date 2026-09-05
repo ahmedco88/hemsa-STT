@@ -23,7 +23,14 @@ a = Analysis(
     # certifi is collected EXPLICITLY. It used to arrive only because something
     # imported requests; if that ever stopped, the model download would fail with
     # SSLCertVerificationError in the packaged build ONLY, never in the venv.
-    datas=collect_data_files("certifi"),
+    datas=collect_data_files("certifi") + [
+        # the two bundled typefaces (SIL OFL), loaded privately at startup by
+        # hemsa/ui/fonts.py; resolved as Path(__file__).parent / "fonts" in the
+        # venv and in the onedir bundle alike. tests/test_packaging_licence.py
+        # checks they are here and named in THIRD-PARTY-NOTICES.md.
+        ("hemsa/fonts/*.ttf", "hemsa/fonts"),
+        ("hemsa/fonts/*.txt", "hemsa/fonts"),
+    ],
     hiddenimports=[
         "sherpa_onnx",
         "pystray._win32",

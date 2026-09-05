@@ -223,6 +223,22 @@ def set_autostart(enabled: bool) -> None:
                 pass
 
 
+def reconcile_autostart(cfg: dict) -> bool:
+    """Put the Run value back when the settings say autostart but Windows disagrees.
+
+    The two drift in one direction only: an installer or an uninstaller can delete
+    the value, and nothing outside Hemsa ever writes it. Windows' own Startup Apps
+    UI disables an entry with a separate flag rather than removing it, so a MISSING
+    value means something deleted it behind the user's back. Repairing silently is
+    right here, because the Settings toggle already claims it is on and the only
+    alternative is a lie on screen. Returns True if it repaired anything.
+    """
+    if not cfg.get("autostart") or get_autostart():
+        return False
+    set_autostart(True)
+    return True
+
+
 def get_autostart() -> bool:
     import winreg
     try:

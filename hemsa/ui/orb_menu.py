@@ -2,8 +2,7 @@
 
 Deliberately shorter than the tray menu: the orb is where the hand already is
 mid-dictation, so it carries what you want IN that moment (the last transcript,
-the word list, pause) and leaves Theme / Cleanup / Stats / About / Updates to the
-tray.
+pause, the window) and leaves Theme / Cleanup / Updates to the tray.
 
 TWO focus rules, and both exist because the orb is a no-activate window whose
 whole job is never to take the caret away from what you are dictating into:
@@ -27,6 +26,7 @@ import tkinter as tk
 
 from .. import palette as P
 from .. import winutil
+from . import theme
 
 log = logging.getLogger("hemsa.orb_menu")
 
@@ -54,7 +54,7 @@ class OrbMenu:
                     bg=P.DARK_CARD, fg=P.DARK_ACCENT,
                     activebackground=P.DARK_ACCENT, activeforeground=P.DARK_CARD,
                     disabledforeground=P.MUTED, selectcolor=P.DARK_ACCENT,
-                    borderwidth=1, relief="solid", font=("Segoe UI", 9))
+                    borderwidth=1, relief="solid", font=theme.F.dark_small)
 
         has_text = bool(ctl.last_text)
         state = "normal" if has_text else "disabled"
@@ -68,10 +68,8 @@ class OrbMenu:
         m.add_separator()
         # posted like every other command here: opening a window does not need the
         # captured hwnd, but running it inline still fights the menu's own grab.
+        m.add_command(label="Open Hemsa", command=lambda: app.post(app.open_home))
         m.add_command(label="Meetings…", command=lambda: app.post(app.open_meetings))
-        m.add_command(label="Word list…", command=lambda: app.post(app.open_dictionary))
-        m.add_command(label="History…", command=lambda: app.post(app.open_history))
-        m.add_command(label="Settings…", command=lambda: app.post(app.open_settings))
 
         m.add_separator()
         paused = tk.BooleanVar(master=self._root, value=not app.cfg["hotkey_enabled"])

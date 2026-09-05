@@ -13,11 +13,12 @@ from . import config, controller, hotkey as hotkey_mod, meeting_jobs, meetings, 
     model_manifest, palette, winutil
 from .engine import Engine
 from .ui import copy_chip as chip_mod, hud as hud_mod, meetings_win as meetings_win_mod, \
-    orb as orb_mod, orb_menu as orb_menu_mod, theme as theme_mod, tray as tray_mod
-from .ui.dictionary_win import DictionaryWindow
-from .ui.history_win import HistoryWindow
-from .ui.settings import SettingsWindow
-from .ui.stats_win import StatsWindow
+    orb as orb_mod, orb_menu as orb_menu_mod, shell as shell_mod, theme as theme_mod, \
+    tray as tray_mod
+from .ui.about import AboutPage
+from .ui.dictionary_win import DictionaryPage
+from .ui.home import HomePage
+from .ui.settings import SettingsPage
 
 
 def _setup_logging() -> Path:
@@ -53,9 +54,6 @@ class App:
         # no reload path - a load failure is permanent until restart).
         self.cfg = cfg
         self._q: queue.Queue = queue.Queue()
-        # before anything that can post a callback naming it
-        self._windows: dict[str, tk.Toplevel] = {}
-
         self.root = root
         self.root.withdraw()
 
@@ -76,6 +74,14 @@ class App:
         self.orb = orb_mod.Orb(self.root, self.cfg, self.ctl.orb_click,
                                menu=orb_menu_mod.OrbMenu(self.root, self))
         self.chip = chip_mod.CopyChip(self.root, self.orb, lambda: self.ctl.last_text)
+        # the one window; pages build on first open. History and Stats live on Home.
+        self.shell = shell_mod.Shell(self.root, self, pages={
+            "home": lambda parent: HomePage(parent, self),
+            "meetings": lambda parent: meetings_win_mod.MeetingsFrame(parent, self),
+            "words": lambda parent: DictionaryPage(parent, self.ctl.reload_dictionary),
+            "settings": lambda parent: SettingsPage(parent, self),
+            "about": lambda parent: AboutPage(parent, self),
+        })
         self.ctl.on_state = self._on_state
         self.ctl.on_paste_risk = self.chip.flash
 
@@ -120,14 +126,18 @@ class App:
             logging.getLogger("hemsa").exception("meetings store unreadable at start")
 
     def _meetings_changed(self) -> None:
-        """Runs on the main thread (App.post). Only the open window cares."""
+        """Runs on the main thread (App.post). The tray and the sidebar always
+        learn about it; the page only refreshes while it is on screen."""
         self._refresh_tray()
-        win = self._windows.get("meetings")
-        if win is not None and win.win.winfo_exists():
-            win.refresh()
+        self.shell.set_recording(bool(self.jobs.recording_id))
+        if self.shell.visible and self.shell.current == "meetings":
+            self.shell.page("meetings").refresh()
+
+    def open_home(self) -> None:
+        self.shell.show("home")
 
     def open_meetings(self) -> None:
-        meetings_win_mod.open_meetings(self)
+        self.shell.show("meetings")
 
     # ---- controller -> UI ----
     def _on_state(self, state: str) -> None:
@@ -180,29 +190,14 @@ class App:
         self.orb.set_state(self.ctl.state)
         self._refresh_tray()
         self.tray.update_menu()
-        for w in self._windows.values():
-            if w.win.winfo_exists():
-                # a window built from plain tk widgets (history cards) carries its
-                # own restyle(); ttk-only windows are fully covered by apply()
-                if hasattr(w, "restyle"):
-                    w.restyle()
-                else:
-                    theme_mod.apply(w.win)
+        self.shell.restyle()
 
     def rebind_hotkey(self) -> None:
         if self.cfg["hotkey_enabled"]:
             self.hotkey.bind(self.cfg["hotkey"])
 
-    def _open(self, key: str, factory) -> None:
-        old = self._windows.get(key)
-        if old and old.win.winfo_exists():
-            old.win.lift()
-            old.win.focus_force()
-            return
-        self._windows[key] = factory()
-
     def open_settings(self) -> None:
-        self._open("settings", lambda: SettingsWindow(self.root, self))
+        self.shell.show("settings")
 
     def check_updates(self, quiet: bool = False) -> None:
         """Ask GitHub whether a newer release exists. quiet=True is the on-start
@@ -232,18 +227,11 @@ class App:
                                         "Open the download page?"):
             updates.open_page(found["url"])
 
-    def open_stats(self) -> None:
-        self._open("stats", lambda: StatsWindow(self.root))
-
     def open_about(self) -> None:
-        from .ui.about import AboutWindow
-        self._open("about", lambda: AboutWindow(self.root, self))
-
-    def open_history(self) -> None:
-        self._open("history", lambda: HistoryWindow(self.root))
+        self.shell.show("about")
 
     def open_dictionary(self) -> None:
-        self._open("dictionary", lambda: DictionaryWindow(self.root, self.ctl.reload_dictionary))
+        self.shell.show("words")
 
     def quit(self) -> None:
         try:
@@ -312,8 +300,16 @@ def main() -> int:
     log = logging.getLogger("hemsa")
     log.info("starting v%s", __import__("hemsa").__version__)
 
+    # BEFORE the root exists, both of them: GDI enumerates fonts when Tk starts,
+    # so a font added later is invisible to every widget, and a process that
+    # claims DPI awareness after Tk has read the screen is stretched anyway.
+    from .ui import fonts as fonts_mod, scale as scale_mod
+    scale_mod.set_dpi_aware()
+    theme_mod.set_fonts(fonts_mod.load_private_fonts())
+
     root = tk.Tk()
     root.withdraw()
+    scale_mod.init(root)
 
     # strict: an existing-but-unreadable config must NOT be mistaken for a first
     # run. Doing so silently resets every setting, offers to re-download the
@@ -353,6 +349,15 @@ def main() -> int:
             return 0
         cfg = config.load()
         cfg["theme"] = palette.set_theme(cfg.get("theme", palette.DEFAULT))
+
+    # An install used to delete the Run value (Inno's deletevalue, fixed 2026-09-03),
+    # so a machine upgraded by an older installer has autostart off while Settings
+    # says on. Repair it here rather than leaving the toggle lying.
+    try:
+        if winutil.reconcile_autostart(cfg):
+            log.info("autostart was missing from the Run key - restored")
+    except OSError:
+        log.exception("could not restore the autostart entry")
 
     App(root, cfg).run()
     return 0

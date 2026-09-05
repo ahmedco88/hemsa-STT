@@ -2,26 +2,70 @@ r"""Local-only dictation history. %LOCALAPPDATA%\Hemsa\history.json, newest firs
 capped. Can hold real clinical content - it must never leave this machine and the
 file is never committed anywhere.
 
-Entries are {"ts": local "YYYY-MM-DD HH:MM", "iso": aware ISO-8601, "text": str}.
-"ts" is what the old format stored and is kept for display; "iso" was added so the
-viewer can show "12 min ago" without guessing a timezone. Both are optional on read
-- an entry written by an older build still renders.
+Entries are {"ts": local "YYYY-MM-DD HH:MM", "iso": aware ISO-8601, "text": str}
+plus an optional "star". "ts" is what the old format stored and is kept for display;
+"iso" was added so the viewer can show "12 min ago" without guessing a timezone.
+All three are optional on read - an entry written by an older build still renders.
+
+An unstarred entry is dropped once it is KEEP_HOURS old: this file can hold real
+clinical content and there is no reason for last week's dictation to sit on disk.
+Starring is the escape hatch, and an entry whose timestamp cannot be read is kept
+rather than deleted - a parse failure must never be a delete.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from . import config
 
 PATH = config.DATA_DIR / "history.json"
 PREVIEW_MAX_LEN = 96
+KEEP_HOURS = 24
+
+
+def entry_id(entry: dict) -> tuple[str, str]:
+    """Identity for starring. The timestamp alone is not enough: it is written to
+    the second, so two quick dictations can share one, and starring would then hit
+    both. Two with the same second AND the same text are indistinguishable anyway."""
+    return (str(entry.get("iso") or entry.get("ts") or ""), entry.get("text") or "")
+
+
+def prune(items: list[dict], now: datetime) -> list[dict]:
+    """Drop unstarred entries older than KEEP_HOURS. Pure, so it is testable
+    without touching the clock or the disk."""
+    cutoff = now - timedelta(hours=KEEP_HOURS)
+    out = []
+    for entry in items:
+        if entry.get("star"):
+            out.append(entry)
+            continue
+        then = entry_time(entry)
+        # None = unreadable timestamp. Keeping it costs one row; deleting it
+        # would throw away content because a FIELD was malformed.
+        if then is None or then > cutoff:
+            out.append(entry)
+    return out
+
+
+def _save(items: list[dict]) -> None:
+    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    # temp + replace, never a plain write: a truncating write means a reader
+    # (or a crash) at that instant sees an empty file and the history is gone.
+    tmp = PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(items, indent=1, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(PATH)
 
 
 def load() -> list[dict]:
+    """Always pruned, so nothing expired is ever shown even if the app has been
+    closed for days. The prune only reaches DISK on the next append or star."""
     try:
-        return json.loads(PATH.read_text(encoding="utf-8"))
+        items = json.loads(PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
+    if not isinstance(items, list):
+        return []
+    return prune(items, datetime.now().astimezone())
 
 
 def append(text: str, cfg: dict) -> None:
@@ -31,12 +75,35 @@ def append(text: str, cfg: dict) -> None:
                      "iso": now.isoformat(timespec="seconds"),
                      "text": text})
     del items[cfg.get("history_cap", 200):]
-    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    # temp + replace, never a plain write: a truncating write means a reader
-    # (or a crash) at that instant sees an empty file and the history is gone.
-    tmp = PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(items, indent=1, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(PATH)
+    _save(items)
+
+
+def set_star(entry: dict, on: bool) -> list[dict]:
+    """Star or unstar the matching entry and write the list back. Returns the new
+    list so the caller does not have to re-read what it just wrote."""
+    target = entry_id(entry)
+    items = load()
+    for item in items:
+        if entry_id(item) == target:
+            if on:
+                item["star"] = True
+            else:
+                item.pop("star", None)
+    _save(items)
+    return items
+
+
+def delete(entry: dict) -> list[dict]:
+    """Drop the matching entry and write the list back. Returns the new list.
+
+    Keyed on entry_id like set_star, not on the timestamp: two dictations in the
+    same second share an iso, so deleting by time alone takes the innocent one
+    with it. Missing is fine - the row is gone either way, which is what the user
+    asked for."""
+    target = entry_id(entry)
+    items = [item for item in load() if entry_id(item) != target]
+    _save(items)
+    return items
 
 
 def clear() -> None:

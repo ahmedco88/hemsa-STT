@@ -1,4 +1,4 @@
-"""About window - what Hemsa is, what it runs on, and who made it.
+"""About page - what Hemsa is, what it runs on, and who made it.
 
 Deliberately concrete: the exact model, the exact stack, and where the data
 lives. "Runs locally" is a claim; naming the model and the folder is evidence.
@@ -11,47 +11,57 @@ from tkinter import ttk
 
 import hemsa
 
-from .. import cleanup, config, model_manifest, palette as P, winutil
+from .. import cleanup, config, model_manifest, palette as P
 from . import theme
+from .scale import px
+from .widgets import PillButton, ScrollFrame
 
 REPO_URL = "https://github.com/ahmedco88/hemsa-STT"
-WIDTH = 480
+PAD = 40                 # logical px, both through px() at use time
+WRAP = 620
 
 
-class AboutWindow:
-    def __init__(self, root: tk.Tk, app):
+class AboutPage(tk.Frame):
+    def __init__(self, parent: tk.Misc, app):
+        super().__init__(parent)
         self.app = app
-        self.win = tk.Toplevel(root)
-        self.win.title("About Hemsa")
-        self.win.resizable(False, False)
-        theme.apply(self.win)
+        self._paper: list[tk.Widget] = []
+        self._widgets: list = []
+        self.scroll = ScrollFrame(self)
+        self.scroll.pack(fill="both", expand=True)
+        self._widgets.append(self.scroll)
+        self._page = self.scroll.body
+        self._build()
+        self.restyle()
 
-        cfg = app.cfg
-        ttk.Label(self.win, text="Hemsa", font=("Segoe UI", 20, "bold")).pack(
-            anchor="w", padx=20, pady=(16, 0))
-        ttk.Label(self.win, style="Muted.TLabel", text=(
-            f"Version {hemsa.__version__}  ·  hemsa = \"whisper\" in Arabic")).pack(
-            anchor="w", padx=20)
+    def _build(self) -> None:
+        cfg = self.app.cfg
+        head = tk.Frame(self._page)
+        head.pack(fill="x", padx=px(PAD), pady=(px(30), px(4)))
+        self._paper.append(head)
+        ttk.Label(head, text="Hemsa", font=theme.F.display).pack(anchor="w")
+        ttk.Label(head, style="Muted.TLabel", text=(
+            f"Version {hemsa.__version__}  ·  hemsa = \"whisper\" in Arabic")).pack(anchor="w")
 
         self._para(
             "Hold a key, speak, and your words are typed wherever your cursor is. Built "
             "because dictation tools either live in the cloud or cost a subscription, and "
             "neither suits notes you would rather keep to yourself.")
 
-        self._section("HOW IT WORKS")
+        self._section("How it works")
         self._para(
             "The hotkey gates a microphone stream kept open for the life of the app, "
             "because opening a device per keypress cost a quarter of a second every time. "
             "On release the clip goes to a speech model on this CPU, your word list "
             "corrections are applied, and the text is pasted at the cursor.")
 
-        self._section("SPEECH RECOGNITION")
+        self._section("Speech recognition")
         self._kv("Model", model_manifest.MODEL_NAME)
         self._kv("Details", f"{model_manifest.MODEL_DETAIL}, ~40x real time")
         self._kv("Runtime", "sherpa-onnx (ONNX Runtime)")
         self._kv("Licence", model_manifest.MODEL_LICENCE)
 
-        self._section("CLEANUP (OPTIONAL)")
+        self._section("Cleanup (optional)")
         mode = cfg.get("cleanup_mode", "off")
         self._kv("Mode", config.CLEANUP_LABELS.get(mode, mode))
         if mode == "ai":
@@ -63,45 +73,51 @@ class AboutWindow:
             self._kv("Method", "punctuation and filler rules, no model"
                      if mode == "fast" else "none, text is pasted as heard")
 
-        self._section("BUILT WITH")
+        self._section("Built with")
         self._kv("Language", f"Python {sys.version_info.major}.{sys.version_info.minor}")
         self._kv("Interface", "tkinter, pystray, PyInstaller")
-        self._kv("Audio", "sounddevice, numpy")
+        self._kv("Audio", "sounddevice, PyAudioWPatch, numpy")
         self._kv("Input", "keyboard, pyperclip, Win32 via ctypes")
+        self._kv("Type", "Instrument Serif and Figtree, both SIL Open Font Licence")
 
-        self._section("YOUR DATA")
+        self._section("Your data")
         self._para(
             "Nothing you dictate leaves this PC. No account, no telemetry, no analytics. "
             "The only network use is the one-time model download and the optional update "
-            f"check. Settings, history and your word list live in {config.DATA_DIR}.")
+            f"check. Settings, history, meetings and your word list live in {config.DATA_DIR}.")
 
-        bar = ttk.Frame(self.win)
-        bar.pack(side="bottom", fill="x", padx=20, pady=(0, 14))
-        ttk.Button(bar, text="View source on GitHub",
-                   command=lambda: webbrowser.open(REPO_URL)).pack(side="left")
-        ttk.Label(bar, style="Muted.TLabel",
-                  text="MIT licence").pack(side="right", pady=4)
-        ttk.Label(self.win, style="Muted.TLabel",
-                  text="Built by Ahmed Al-Obaidi").pack(side="bottom", anchor="w", padx=20)
-
-        # Size to the content rather than a guessed constant: the text reflows with
-        # theme fonts and DPI, and a fixed height silently clips the GitHub button.
-        self.win.update_idletasks()
-        _l, top, _r, bottom = winutil.work_area()
-        height = min(self.win.winfo_reqheight(), bottom - top - 60)
-        winutil.place_near_tray(self.win, max(WIDTH, self.win.winfo_reqwidth()), height)
+        bar = tk.Frame(self._page)
+        bar.pack(fill="x", padx=px(PAD), pady=(px(18), px(20)))
+        self._paper.append(bar)
+        btn = PillButton(bar, "View source on GitHub", kind="primary",
+                         command=lambda: webbrowser.open(REPO_URL))
+        btn.pack(side="left")
+        self._widgets.append(btn)
+        ttk.Label(bar, style="Muted.TLabel", text="MIT licence  ·  Built by Ahmed Al-Obaidi"
+                  ).pack(side="left", padx=px(16))
 
     # ---- little layout helpers ----
     def _section(self, text: str) -> None:
-        ttk.Label(self.win, text=text, style="Section.TLabel").pack(
-            anchor="w", padx=20, pady=(14, 2))
+        ttk.Label(self._page, text=text.upper(), style="Section.TLabel").pack(
+            anchor="w", padx=px(PAD), pady=(px(16), px(4)))
 
     def _para(self, text: str) -> None:
-        ttk.Label(self.win, style="Muted.TLabel", wraplength=420, justify="left",
-                  text=text).pack(anchor="w", padx=20, pady=(6, 0))
+        ttk.Label(self._page, style="Muted.TLabel", wraplength=px(WRAP),
+                  justify="left", text=text, font=theme.F.body).pack(
+                      anchor="w", padx=px(PAD), pady=(px(6), 0))
 
     def _kv(self, key: str, value: str) -> None:
-        row = ttk.Frame(self.win)
-        row.pack(fill="x", padx=20, pady=1)
-        ttk.Label(row, text=key, style="Muted.TLabel", width=10).pack(side="left")
-        ttk.Label(row, text=value, wraplength=330, justify="left").pack(side="left")
+        row = tk.Frame(self._page)
+        row.pack(fill="x", padx=px(PAD), pady=px(1))
+        self._paper.append(row)
+        ttk.Label(row, text=key, style="Muted.TLabel", width=11).pack(side="left")
+        ttk.Label(row, text=value, wraplength=px(WRAP - 100),
+                  justify="left").pack(side="left")
+
+    # ---- theme ----
+    def restyle(self) -> None:
+        self.configure(bg=P.PAPER)
+        for w in self._paper:
+            w.configure(bg=P.PAPER)
+        for w in self._widgets:
+            w.restyle()

@@ -52,3 +52,14 @@ redistributing them that this project avoids.
 `pyperclip` (BSD-3), `keyboard` (MIT), `certifi` (MPL-2.0).
 
 `pystray` is LGPL-3.0 and is used as an unmodified library through its public API.
+
+## Fonts
+
+- **Instrument Serif** (Rodrigo Fuenzalida, Astrid Carolina Valdes) - **SIL Open Font
+  Licence 1.1**. Bundled as `hemsa/fonts/InstrumentSerif-*.ttf`, licence text beside
+  it (`OFL-InstrumentSerif.txt`).
+- **Figtree** (Erik Kennedy) - **SIL Open Font Licence 1.1**. Bundled as
+  `hemsa/fonts/Figtree-*.ttf`, licence text beside it (`OFL-Figtree.txt`).
+
+Both are used unmodified and loaded for the Hemsa process only (nothing is installed
+on the PC). The OFL reserves the font names; Hemsa does not rename them.

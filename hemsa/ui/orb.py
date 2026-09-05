@@ -14,9 +14,9 @@ import tkinter as tk
 
 from .. import palette as P
 from .. import winutil
+from .scale import px
 
-_TRANS = "#010203"
-SIZE = 56
+SIZE = 56                # logical; self.size is the px() one
 DRAG_THRESHOLD = 6
 ALPHA_IDLE = 0.82
 ALPHA_HOVER = 1.0
@@ -31,11 +31,12 @@ class Orb:
         self.win = tk.Toplevel(root)
         self.win.overrideredirect(True)
         self.win.attributes("-topmost", True)
-        self.win.config(bg=_TRANS)
-        self.win.wm_attributes("-transparentcolor", _TRANS)
+        self.win.config(bg=P.TRANSPARENT_KEY)
+        self.win.wm_attributes("-transparentcolor", P.TRANSPARENT_KEY)
         self.win.attributes("-alpha", ALPHA_IDLE)
-        self.canvas = tk.Canvas(self.win, width=SIZE, height=SIZE, bg=_TRANS,
-                                highlightthickness=0)
+        self.size = px(SIZE)
+        self.canvas = tk.Canvas(self.win, width=self.size, height=self.size,
+                                bg=P.TRANSPARENT_KEY, highlightthickness=0)
         self.canvas.pack()
         self._state = "idle"
         self._tick = 0
@@ -50,11 +51,11 @@ class Orb:
 
         pos = cfg.get("orb_pos")
         if pos:
-            x, y = winutil.snap_to_edge(pos[0], pos[1], SIZE, SIZE)
+            x, y = winutil.snap_to_edge(pos[0], pos[1], self.size, self.size)
         else:
             left, _t, right, bottom = winutil.work_area()
-            x, y = right - SIZE - 8, bottom - SIZE - 120
-        self.win.geometry(f"{SIZE}x{SIZE}+{x}+{y}")
+            x, y = right - self.size - px(8), bottom - self.size - px(120)
+        self.win.geometry(f"{self.size}x{self.size}+{x}+{y}")
         winutil.set_noactivate(self.win)
         self._draw()
         self._animating = False
@@ -106,7 +107,8 @@ class Orb:
     def _release(self, _e) -> None:
         self._dragging = False
         if self._drag["moved"]:
-            x, y = winutil.snap_to_edge(self.win.winfo_x(), self.win.winfo_y(), SIZE, SIZE)
+            x, y = winutil.snap_to_edge(self.win.winfo_x(), self.win.winfo_y(),
+                                        self.size, self.size)
             self.win.geometry(f"+{x}+{y}")
             self.cfg["orb_pos"] = [x, y]
             from .. import config
@@ -118,25 +120,31 @@ class Orb:
     def _draw(self) -> None:
         c = self.canvas
         c.delete("all")
-        m = 3
+        # every coordinate below is written for a SIZE box and multiplied by k,
+        # so the glyph keeps its proportions whatever the screen scale is
+        k = self.size / SIZE
+        m = 3 * k
         ring = {"idle": P.DARK_ACCENT, "recording": P.REC, "processing": P.DARK_ACCENT_LIT}[self._state]
-        c.create_oval(m, m, SIZE - m, SIZE - m, fill=P.DARK_CARD, outline=ring, width=2.5)
+        c.create_oval(m, m, self.size - m, self.size - m, fill=P.DARK_CARD,
+                      outline=ring, width=2.5 * k)
 
-        cx = cy = SIZE / 2
+        cx = cy = self.size / 2
         if self._state == "processing":
             start = (self._tick * 17) % 360
-            c.create_arc(cx - 11, cy - 11, cx + 11, cy + 11, start=start, extent=100,
-                         style="arc", outline=P.DARK_ACCENT_LIT, width=3)
+            c.create_arc(cx - 11 * k, cy - 11 * k, cx + 11 * k, cy + 11 * k, start=start,
+                         extent=100, style="arc", outline=P.DARK_ACCENT_LIT, width=3 * k)
         else:
             # mic glyph: capsule + stand. Recording only recolours it - the live
             # level already animates in the HUD pill, and a second pulsing shape
             # 40 px away read as a fault rather than as feedback.
             ink = P.REC if self._state == "recording" else P.DARK_ACCENT
-            c.create_oval(cx - 5, cy - 13, cx + 5, cy + 1, fill=ink, outline="")
-            c.create_arc(cx - 9, cy - 8, cx + 9, cy + 8, start=180, extent=180,
-                         style="arc", outline=ink, width=2)
-            c.create_line(cx, cy + 8, cx, cy + 13, fill=ink, width=2)
-            c.create_line(cx - 5, cy + 13, cx + 5, cy + 13, fill=ink, width=2)
+            c.create_oval(cx - 5 * k, cy - 13 * k, cx + 5 * k, cy + k, fill=ink,
+                          outline="")
+            c.create_arc(cx - 9 * k, cy - 8 * k, cx + 9 * k, cy + 8 * k, start=180,
+                         extent=180, style="arc", outline=ink, width=2 * k)
+            c.create_line(cx, cy + 8 * k, cx, cy + 13 * k, fill=ink, width=2 * k)
+            c.create_line(cx - 5 * k, cy + 13 * k, cx + 5 * k, cy + 13 * k, fill=ink,
+                          width=2 * k)
 
     def _animate(self) -> None:
         if self._state != "processing":
@@ -175,8 +183,8 @@ class Orb:
                     winutil.set_noactivate(self.win)
                     self._draw()
                 x, y = self.win.winfo_x(), self.win.winfo_y()
-                if not winutil.on_screen(x, y, SIZE, SIZE):
-                    nx, ny = winutil.snap_to_edge(x, y, SIZE, SIZE)
+                if not winutil.on_screen(x, y, self.size, self.size):
+                    nx, ny = winutil.snap_to_edge(x, y, self.size, self.size)
                     self.win.geometry(f"+{nx}+{ny}")
                     self.cfg["orb_pos"] = [nx, ny]
                     from .. import config

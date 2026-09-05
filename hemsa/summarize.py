@@ -15,6 +15,33 @@ happen to occur somewhere else in the transcript, attached to unrelated content.
 The guard narrows that failure down to exactly this coincidence, it does not
 eliminate it, so the clinician reading the summary is still the final check.
 
+SUMMARY and ACTIONS are TWO separate calls asking for JSON (2026-09-04). All of
+that shape came out of measuring `scripts/eval_summary.py` against the real
+model, not from taste:
+
+* One call for both used to ask for "SUMMARY:" / "ACTIONS:" sections of "- "
+  bullets. qwen3.5:2b replied with every bullet inline on ONE line and then
+  "ACTIONS: none", so the header regex found no bare header, the bullet filter
+  found no line starting with "- ", and 100% of the output was discarded. The
+  shipped release had been producing "- (empty summary)" for every meeting.
+* `format: "json"` fixes the line-shape problem and Ollama 0.30.10 honours it. A
+  JSON SCHEMA in `format` does NOT work on this build - it returns empty content,
+  or is ignored outright when `think` is also set - so the key is named in the
+  prompt instead, and the reply is still not guaranteed to parse.
+* Asking one call for both keys left "actions" EMPTY in 3 of 3 runs: the model
+  put the tasks in "summary" and nothing in "actions". Asking for actions FIRST
+  fixed the content and broke the JSON instead (`"actions": "a", "b"`, no
+  brackets). One list per call is the shape that holds, and it is the same
+  lesson as REDUCE_PROMPT's "one instruction per section" one size up. It also
+  deletes the SUMMARY/ACTIONS header split entirely - nothing has to find a
+  boundary in a reply that only ever contains one list.
+* Cost: two round trips instead of one, about 6 s each on this CPU-only PC for a
+  short meeting, against an hour of recording. The map pass dominates a long one.
+
+And the reason the failure stayed invisible: an empty parse was returned as
+"- (empty summary)", which looks like a result, so nothing upstream complained.
+An empty summary is now a None - the meeting reports that the summary failed.
+
 ACTIONS carry no owner, deliberately (2026-09-02). Asked for "who - what", the
 model attached the only name in the transcript to every action, so a consultation
 listed the PATIENT as the owner of the clinician's actions. Every bullet was true
@@ -24,6 +51,8 @@ strip_owners removes a prefix if one appears anyway. See strip_owners for what
 that still cannot catch.
 """
 
+import difflib
+import json
 import logging
 import re
 
@@ -37,23 +66,28 @@ MAP_PROMPT = (
     "note that it was asked - never answer it yourself. Record what was said, "
     "never who owes whom a task. No new facts, no advice, "
     "no numbers that are not in the text. Return only '- ' bullets.")
-REDUCE_PROMPT = (
-    "Combine these meeting notes into two sections.\n"
-    "SUMMARY: at most 8 '- ' bullets of what was discussed and decided.\n"
+SUMMARY_PROMPT = (
+    "Summarise what was discussed in these meeting notes. Return JSON: "
+    '{"summary": ["...", "..."]} and nothing else. At most 8 short strings, '
     # No worked wrong/right examples here, however tempting: qwen3.5:2b copied
-    # the example bullet into SUMMARY and collapsed the whole response to two
-    # lines. At this size the prompt has to stay one instruction per section.
-    "ACTIONS: '- ' bullets of the tasks agreed on, each starting with a verb, "
-    "like 'Order a chest x-ray'. Do not say who does it: no names, no roles, no "
-    "Me, Them, I or We. If none, write '- none'.\n"
-    "Only use what is in the notes. Never answer questions that appear in them. "
-    "Return exactly the two sections.")
+    # the example bullet into the output and collapsed the whole response.
+    "keeping any number that was said. Only use what is in the notes. "
+    "Never answer a question in the notes.")
+ACTIONS_PROMPT = (
+    "List every task that was agreed in these meeting notes. Return JSON: "
+    '{"actions": ["...", "..."]} and nothing else. One short string per task, '
+    "each starting with a verb, keeping any date, number or deadline that was "
+    "said. Do not say who does it: no names, no roles, no Me, Them, I or We. "
+    # Do NOT add a "a topic is not a task" line here, however tempting: it was
+    # measured, and it made qwen3.5:2b terser across the board - "Book flu
+    # clinic" instead of "Book flu clinic for 18th, cap at 35 patients", losing
+    # every detail the next line asks for. drop_restatements is the control for
+    # topic-shaped actions; the prompt is only ever a request.
+    "Only tasks that were actually agreed. Never answer a question in the "
+    "notes. Empty list if there are none.")
 
 _NUM_RE = re.compile(r"\d[\d.,:]*")
 _WORD_RE = re.compile(r"[a-zA-Z]+")
-_ACTIONS_RE = re.compile(
-    r"(?im)^\s*(?:#+\s*)?\**\s*ACTIONS?(?:\s+ITEMS?)?\s*\**\s*(?:\([^)\n]*\))?"
-    r"\s*:?\s*\**\s*$")
 _MARKER_RE = re.compile(r"^(\s*)(?:[*•–+]|\d+[.)])\s+(.*)$")
 
 # Dose units and dosing-advice phrasing a fabricated answer would use, even when it
@@ -103,6 +137,47 @@ def _normalize_markers(text: str) -> str:
         m = _MARKER_RE.match(line)
         out.append(f"{m.group(1)}- {m.group(2)}" if m else line)
     return "\n".join(out)
+
+
+def _strip_marker(item: str) -> str:
+    """A "- ", "* ", "1." or bullet-character prefix inside a JSON string. The
+    model was told not to, and adds them anyway about half the time."""
+    line = _normalize_markers(item.strip())
+    return line[2:].strip() if line.startswith("- ") else line.strip()
+
+
+def _json_list(content: str, key: str) -> str | None:
+    """The named list from a JSON reply as "- " bullets, or None when the reply
+    is not JSON at all - which hands the caller back to the prose parser.
+
+    Deliberately tolerant about everything except being parseable: a bare array,
+    the right list under the wrong key, a single newline-separated string and a
+    stray number are all things a 2B model returns, and none of them is a reason
+    to throw the summary away. An empty list is "" and NOT None: the model saying
+    there are no actions is an answer, not a failure."""
+    try:
+        data = json.loads(content)
+    except ValueError:
+        return None
+    if isinstance(data, dict):
+        value = data.get(key)
+        if value is None and len(data) == 1:
+            value = next(iter(data.values()))       # right list, wrong key
+    else:
+        value = data                                # a bare array
+    if isinstance(value, str):
+        value = value.splitlines()
+    if not isinstance(value, list):
+        return None
+    lines = []
+    for item in value:
+        if not isinstance(item, (str, int, float)):
+            continue
+        text = _strip_marker(str(item))
+        # "none" is the model spelling out an empty list, not an action
+        if text and text.lower().strip(".") != "none":
+            lines.append(f"- {text}")
+    return "\n".join(lines)
 
 
 def _bullets(section: str) -> str:
@@ -169,6 +244,44 @@ def strip_owners(bullets: str) -> str:
     return "\n".join(out)
 
 
+# Measured, not guessed. On the reported case the restated actions scored
+# 0.76, 0.96 and 0.96 against their summary line, while genuine actions that
+# merely share a subject with the summary scored 0.24 to 0.66. 0.74 sits in
+# that gap. Re-derive it if the prompts change: the numbers are the reason.
+RESTATE_RATIO = 0.74
+
+
+def drop_restatements(actions: str, summary: str) -> str:
+    """Drop an ACTION that is just a SUMMARY line re-tensed.
+
+    Asked separately what was discussed and what was agreed, a small model
+    given a thin transcript answers both with the same topics - "Discussing
+    knee pain" in the summary and "Address knee pain concerns" as an action -
+    and the pane reads as if it is repeating itself.
+
+    Biased towards KEEPING: losing a real action is worse than showing a
+    duplicate, so the cutoff sits nearer the restatements than the genuine
+    ones, and a bullet is only ever compared whole."""
+    if not actions.strip() or not summary.strip():
+        return actions
+    heads = [l[2:].strip(" .").lower() for l in summary.splitlines()
+             if l.startswith("- ")]
+    kept = []
+    for line in actions.splitlines():
+        body = line[2:].strip(" .").lower() if line.startswith("- ") else ""
+        hit = None
+        if body:
+            for head in heads:
+                if difflib.SequenceMatcher(None, body, head).ratio() >= RESTATE_RATIO:
+                    hit = head
+                    break
+        if hit:
+            log.info("dropped action restating the summary: %r", line.strip())
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
 def numbers_guard(bullets: str, transcript: str) -> str:
     """Drop any bullet that carries a digit, unit word or advice phrase absent from
     the transcript. A digit alone is not enough: a fabricated "500 mg" must not
@@ -199,21 +312,24 @@ def numbers_guard(bullets: str, transcript: str) -> str:
 
 
 def _chat(prompt_and_text, cfg):
-    system, text = prompt_and_text
-    r = requests.post(
-        f"{cfg['ollama_url']}/api/chat",
-        json={"model": cfg["cleanup_model"],
-              "messages": [{"role": "system", "content": system},
-                           {"role": "user", "content": text}],
-              "stream": False, "think": False, "keep_alive": "30m",
-              "options": {"temperature": 0, "num_predict": 1024}},
-        timeout=(1.0, 300))          # CPU-only: a reduce pass can take minutes
+    # a 3-tuple, not three arguments: the tests monkeypatch this with a
+    # two-parameter lambda and must not have to care what is inside the first
+    system, text, fmt = prompt_and_text
+    body = {"model": cfg["cleanup_model"],
+            "messages": [{"role": "system", "content": system},
+                         {"role": "user", "content": text}],
+            "stream": False, "think": False, "keep_alive": "30m",
+            "options": {"temperature": 0, "num_predict": 1024}}
+    if fmt:
+        body["format"] = fmt
+    r = requests.post(f"{cfg['ollama_url']}/api/chat", json=body,
+                      timeout=(1.0, 300))   # CPU-only: a reduce can take minutes
     return r.json()
 
 
-def _ask(system, text, cfg) -> str | None:
+def _ask(system, text, cfg, fmt=None) -> str | None:
     try:
-        body = _chat((system, text), cfg)
+        body = _chat((system, text, fmt), cfg)
     except Exception as exc:
         log.info("summary unavailable: %s", exc)
         return None
@@ -231,6 +347,20 @@ def _ask(system, text, cfg) -> str | None:
     return out or None
 
 
+def _ask_list(prompt: str, material: str, cfg, key: str) -> str | None:
+    """One JSON list from one call, as "- " bullets. None means the call itself
+    failed; "" means the model returned an empty list, which is a real answer."""
+    reply = _ask(prompt, material, cfg, fmt="json")
+    if reply is None:
+        return None
+    bullets = _json_list(reply, key)
+    if bullets is None:
+        # Not JSON: an older Ollama, or a model that ignores the format flag.
+        log.info("%s reply was not JSON, reading it as prose", key)
+        bullets = _bullets(reply)
+    return bullets
+
+
 def summarize(segments, cfg) -> tuple[str, str] | None:
     """(summary_bullets, action_bullets) or None. Never raises."""
     transcript = render(segments)
@@ -245,19 +375,21 @@ def summarize(segments, cfg) -> tuple[str, str] | None:
         material = "\n".join(notes)
     else:
         material = transcript
-    combined = _ask(REDUCE_PROMPT, material, cfg)
-    if combined is None:
+    summary = _ask_list(SUMMARY_PROMPT, material, cfg, "summary")
+    if summary is None:
         return None
-    combined = _normalize_markers(combined)
-    combined = numbers_guard(combined, transcript)
-    m = _ACTIONS_RE.search(combined)
-    if m:
-        summary, actions = combined[:m.start()], combined[m.end():]
-    else:
-        # No header found: any action bullets the model wrote are still sitting in
-        # the summary text. Log it - a header wording drift is otherwise invisible,
-        # the summary just quietly grows a tail and ACTIONS reads "none".
-        log.info("no ACTIONS header found in summary response")
-        summary, actions = combined, "- none"
-    summary, actions = _bullets(summary), _bullets(actions) or "- none"
-    return (summary.strip() or "- (empty summary)", strip_owners(actions).strip())
+    # actions failing must not cost the summary: a meeting with notes and no
+    # action list is still worth reading, an empty one is not.
+    actions = _ask_list(ACTIONS_PROMPT, material, cfg, "actions") or ""
+
+    summary = numbers_guard(summary, transcript).strip()
+    actions = strip_owners(numbers_guard(actions, transcript)).strip()
+    # last, so it compares the bullets as they will actually be shown
+    actions = drop_restatements(actions, summary).strip()
+    if not summary:
+        # An empty parse is a FAILURE, not a summary. Returning "- (empty
+        # summary)" here is how a totally broken reduce pass shipped unnoticed:
+        # it looked like a result, so nothing upstream ever complained.
+        log.info("summary parsed to nothing")
+        return None
+    return summary, actions or "- none"

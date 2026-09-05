@@ -20,8 +20,9 @@ Free and open source (MIT). Built by Ahmed Al-Obaidi.
 3. On first launch Hemsa downloads the speech model (about 660 MB, once) and asks
    you to pick a microphone and a push-to-talk key. That is the whole setup.
 
-Then: hold **Ctrl+Win**, speak, let go. Right-click the tray icon for Stats,
-History, Dictionary, Settings and the theme picker.
+Then: hold **Ctrl+Win**, speak, let go. Everything else lives in one window,
+opened from the tray icon or by double-clicking the orb: Home, Meetings, Word list
+and Settings down the side.
 
 ### Windows warnings
 
@@ -39,25 +40,30 @@ run it from source instead (below) - it is the same code.
 
 ## What it looks like
 
+Everything except the orb lives in one window. **Home** opens on your counters and
+everything you have dictated recently, newest first. Hover a line to copy it back,
+delete just that one, or star it to keep it past the 24 hours.
+
+![Hemsa Home: words per minute, words dictated, typing saved, and today's dictations](docs/screenshots/home.png)
+
 The floating orb sits above whatever you are working in and never takes your text
 cursor. Click it to dictate, right-click it for the last transcript and the rest.
 
 ![The orb over Notepad after a dictation, with the text at the cursor](docs/screenshots/orb.png)
 
-Settings, and the tray menu. The engine line tells you the model is loaded and
-running locally, and cleanup is off unless you turn it on. The tray menu also has
-Meetings, added after this screenshot was taken.
+A finished meeting, summary and actions on the left, the labelled transcript on the
+right. **Me** is your microphone and **Them** is everything else on the call.
 
-<p>
-  <img src="docs/screenshots/settings.png" alt="Hemsa settings: push-to-talk key, microphone, engine loaded on this PC, optional cleanup" width="420">
-  <img src="docs/screenshots/tray.png" alt="Hemsa tray menu: cleanup, orb, theme, stats, history, word list, settings" width="220">
-</p>
+![A finished meeting in Hemsa: summary and actions beside the labelled transcript](docs/screenshots/meetings.png)
 
-The word list is the one thing worth setting up. Type a name, place or term the way
-it should be typed, one per line, and close spellings get corrected to it. You never
-have to record what the model got wrong.
+Settings. The push-to-talk key, the microphone, four themes, and cleanup, which is
+off unless you turn it on.
 
-<img src="docs/screenshots/wordlist.png" alt="Hemsa word list: one word per line, the way it should be typed" width="380">
+![Hemsa settings: push-to-talk key, microphone, theme, start with Windows, update check, cleanup](docs/screenshots/settings.png)
+
+The **Word list** page is the one thing worth setting up. Type a name, place or term
+the way it should be typed, one per line, and close spellings get corrected to it.
+You never have to record what the model got wrong.
 
 ## Meetings
 
@@ -87,6 +93,60 @@ Hemsa is MIT. Recording, transcription and summaries need none of it. Details in
   **Read the transcript before you rely on any of it.** It is a draft to check,
   never a record, and it is not suitable as a clinical or legal document.
 
+## Ollama (optional, for cleanup and summaries)
+
+Two features call a small language model on your PC through
+[Ollama](https://ollama.com): the **AI cleanup** mode for dictation, and the
+**summary and action list** for meetings. Everything else works without it.
+Dictation, the word list and meeting *transcripts* never touch Ollama.
+
+If Hemsa says *"Ollama is not running"*, nothing is broken and nothing is lost.
+A meeting still records and still transcribes. Only the summary is skipped.
+
+**Set it up once**
+
+1. Install Ollama from [ollama.com/download](https://ollama.com/download).
+2. Pull the model Hemsa uses:
+
+   ```
+   ollama pull qwen3.5:2b
+   ```
+
+**Start it**
+
+Easiest: open **Meetings** in Hemsa. If Ollama is down it says so, and gives you a
+**Start Ollama** button and a **Check again** button right under the warning. That
+is the whole job, and you do not need the rest of this section.
+
+Otherwise, Ollama has to be *running* before Hemsa can reach it. Either:
+
+- Open the **Ollama** app from the Start menu. It sits in the system tray and
+  starts itself with Windows from then on. This is the one to use if you want to
+  stop thinking about it.
+- Or run this in a terminal and leave the window open:
+
+  ```
+  ollama serve
+  ```
+
+**Check it is up**
+
+Open <http://localhost:11434> in a browser. "Ollama is running" means you are
+set. In Hemsa, the Settings page shows the same thing, and the Meetings page
+warns you *before* you record rather than after.
+
+Started it outside Hemsa while the warning was up? Press **Check again**. Hemsa
+only re-checks at the moments that matter, so it will not notice on its own.
+
+**Using a different model or machine**
+
+`cleanup_model` and `ollama_url` in `%LOCALAPPDATA%\Hemsa\config.json` are both
+editable, so you can point Hemsa at another model or at an Ollama on your
+network. Be careful swapping in something smaller than `qwen3.5:2b`: every 1B
+model tested answered a dictated *question* instead of transcribing it, which for
+a medical question means inventing a dose.
+
+
 ## How it works
 
 - **Speech-to-text:** [Parakeet TDT 0.6B v2](https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8)
@@ -106,16 +166,25 @@ Hemsa is MIT. Recording, transcription and summaries need none of it. Details in
 
 ### What touches the network
 
-Two things, both optional and both visible:
+Three things, all optional and all visible:
 
-| When | What | Sends |
+| When | What | Goes where |
 |---|---|---|
-| First run | Downloads the speech model from Hugging Face | nothing about you |
-| If you tick "check for updates" | Asks GitHub for the latest version number | nothing about you |
+| First run | Downloads the speech model from Hugging Face | out to the internet, sends nothing about you |
+| If you tick "check for updates" | Asks GitHub for the latest version number | out to the internet, sends nothing about you |
+| AI cleanup, or a meeting summary | Sends the text to Ollama | `localhost` only, unless you repoint `ollama_url` yourself |
 
-The update check is **off by default**. There is no telemetry, no analytics and no
-crash reporting. Your dictations, history and settings stay in
-`%LOCALAPPDATA%\Hemsa\` and are never transmitted.
+The update check is **off by default**, and so is AI cleanup. There is no
+telemetry, no analytics and no crash reporting.
+
+To be exact about the third row, because it is the one that carries your words:
+cleanup and summaries POST your dictated text or your meeting transcript to
+whatever `ollama_url` in your config points at. **Out of the box that is
+`http://localhost:11434`, a server on your own PC**, which is why Hemsa still
+works with the internet switched off. If you edit `ollama_url` to reach an Ollama
+on another machine, your text goes to that machine. Nothing else Hemsa does
+transmits anything: your dictations, history, meetings, word list and settings
+sit in `%LOCALAPPDATA%\Hemsa\` and are never sent anywhere.
 
 ## Run from source
 
@@ -161,5 +230,5 @@ and lets the model live outside Program Files.
 
 MIT - see [LICENSE](LICENSE). The speech model is licensed separately (CC-BY-4.0),
 and the installed app bundles other people's libraries under their own licences:
-see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), which also records an
-unresolved licence question about the ffmpeg libraries used for file import.
+see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), which also explains why
+the installer ships no ffmpeg at all, and so no file import.

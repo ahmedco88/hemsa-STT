@@ -17,8 +17,11 @@ from tkinter import ttk
 
 from .. import audio, config, download, hotkey, model_manifest, palette as P, winutil
 from . import theme
+from .scale import px
+from .widgets import PillButton, Toggle
 
 POLL_MS = 120
+PAD = 32
 
 
 def _mb(n: float) -> str:
@@ -43,51 +46,57 @@ class OnboardingWindow:
         self.win.attributes("-topmost", True)
         self.win.after(300, lambda: self.win.attributes("-topmost", False))
 
-        ttk.Label(self.win, text="Hemsa", font=("Segoe UI", 20, "bold")).pack(
-            anchor="w", padx=22, pady=(18, 0))
-        ttk.Label(self.win, style="Muted.TLabel", text=(
-            "Hold a key, speak, and your words are typed wherever your cursor is.\n"
-            "Speech recognition runs on this PC. Nothing you say is sent anywhere.")
-        ).pack(anchor="w", padx=22, pady=(2, 0))
+        ttk.Label(self.win, text="Welcome to Hemsa", font=theme.F.display).pack(
+            anchor="w", padx=px(PAD), pady=(px(26), 0))
+        ttk.Label(self.win, style="Muted.TLabel", font=theme.F.body,
+                  wraplength=px(470), justify="left", text=(
+                      "Hold a key, speak, and your words are typed wherever your cursor "
+                      "is. Speech recognition runs on this PC. Nothing you say is sent "
+                      "anywhere.")).pack(anchor="w", padx=px(PAD), pady=(px(6), 0))
+
+        # packed BEFORE the sections: pack takes space from the last-packed widget
+        # first when the window is short, and Start must never be the casualty
+        self.start_btn = PillButton(self.win, "Start Hemsa", kind="primary",
+                                    command=self._finish)
+        self.start_btn.pack(side="bottom", pady=(0, px(24)))
 
         self._model_section()
         self._settings_section()
-
-        self.start_btn = ttk.Button(self.win, text="Start Hemsa", command=self._finish)
-        self.start_btn.pack(side="bottom", pady=(0, 18))
         self._refresh()
 
     # ---- sections ----
     def _model_section(self) -> None:
         ttk.Label(self.win, text="SPEECH MODEL", style="Section.TLabel").pack(
-            anchor="w", padx=22, pady=(18, 2))
-        self.model_lbl = ttk.Label(self.win, style="Muted.TLabel", wraplength=440,
+            anchor="w", padx=px(PAD), pady=(px(24), px(4)))
+        self.model_lbl = ttk.Label(self.win, style="Muted.TLabel", wraplength=px(460),
                                    justify="left")
-        self.model_lbl.pack(anchor="w", padx=22)
-        self.bar = ttk.Progressbar(self.win, length=440, mode="determinate", maximum=1000)
-        self.bar.pack(anchor="w", padx=22, pady=(8, 4))
+        self.model_lbl.pack(anchor="w", padx=px(PAD))
+        self.bar = ttk.Progressbar(self.win, length=px(460), mode="determinate",
+                                   maximum=1000)
+        self.bar.pack(anchor="w", padx=px(PAD), pady=(px(10), px(4)))
         # show WHERE, so "why is it asking me to download again?" is answerable at
         # a glance instead of needing the log
-        self.path_lbl = ttk.Label(self.win, style="Muted.TLabel", wraplength=440,
-                                  justify="left", font=("Consolas", 8))
-        self.path_lbl.pack(anchor="w", padx=22, pady=(0, 4))
+        self.path_lbl = ttk.Label(self.win, style="Muted.TLabel", wraplength=px(460),
+                                  justify="left", font=theme.F.mono)
+        self.path_lbl.pack(anchor="w", padx=px(PAD), pady=(0, px(6)))
         row = ttk.Frame(self.win)
-        row.pack(fill="x", padx=22)
-        self.dl_btn = ttk.Button(row, text="Download model", command=self._start_download)
+        row.pack(fill="x", padx=px(PAD))
+        self.dl_btn = PillButton(row, "Download model", kind="primary",
+                                 command=self._start_download)
         self.dl_btn.pack(side="left")
         self.detail_lbl = ttk.Label(row, style="Muted.TLabel")
-        self.detail_lbl.pack(side="left", padx=10)
+        self.detail_lbl.pack(side="left", padx=px(12))
 
     def _settings_section(self) -> None:
         ttk.Label(self.win, text="SETUP", style="Section.TLabel").pack(
-            anchor="w", padx=22, pady=(18, 2))
-        pad = {"padx": 22, "pady": 3}
+            anchor="w", padx=px(PAD), pady=(px(24), px(6)))
+        pad = {"padx": px(PAD), "pady": px(5)}
 
         row = ttk.Frame(self.win); row.pack(fill="x", **pad)
         ttk.Label(row, text="Push-to-talk key").pack(side="left")
         self.key_var = tk.StringVar(value=self.cfg["hotkey"])
         combo = ttk.Combobox(row, textvariable=self.key_var, values=hotkey.CHOICES,
-                             state="readonly", width=16)
+                             state="readonly", width=16, style="Hemsa.TCombobox")
         combo.pack(side="right")
 
         row = ttk.Frame(self.win); row.pack(fill="x", **pad)
@@ -95,18 +104,22 @@ class OnboardingWindow:
         mics = ["System default"] + audio.device_names()
         self.mic_var = tk.StringVar(value=self.cfg.get("mic_device") or "System default")
         ttk.Combobox(row, textvariable=self.mic_var, values=mics, state="readonly",
-                     width=28).pack(side="right")
+                     width=28, style="Hemsa.TCombobox").pack(side="right")
 
         self.autostart_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(self.win, text="Start Hemsa when Windows starts",
-                        variable=self.autostart_var).pack(anchor="w", padx=22, pady=3)
+        self._toggle_row("Start Hemsa when Windows starts", self.autostart_var)
         self.update_var = tk.BooleanVar(value=bool(self.cfg.get("update_check")))
-        ttk.Checkbutton(self.win, variable=self.update_var,
-                        text="Check GitHub for new versions on start (optional)").pack(
-            anchor="w", padx=22, pady=3)
-        ttk.Label(self.win, style="Muted.TLabel", wraplength=440, justify="left",
+        self._toggle_row("Check GitHub for new versions on start (optional)", self.update_var)
+        ttk.Label(self.win, style="Muted.TLabel", wraplength=px(460), justify="left",
                   text=("The update check is the only time Hemsa uses the internet after "
-                        "setup. It sends nothing about you.")).pack(anchor="w", padx=22)
+                        "setup. It sends nothing about you.")).pack(
+                            anchor="w", padx=px(PAD), pady=(px(2), 0))
+
+    def _toggle_row(self, text: str, var: tk.BooleanVar) -> None:
+        row = ttk.Frame(self.win)
+        row.pack(fill="x", padx=px(PAD), pady=px(5))
+        ttk.Label(row, text=text).pack(side="left")
+        Toggle(row, var, ground="PAPER").pack(side="right")
 
     # ---- download ----
     def _start_download(self) -> None:
@@ -152,9 +165,9 @@ class OnboardingWindow:
         if ready:
             self.model_lbl.config(
                 text=f"{model_manifest.MODEL_NAME} installed and ready.",
-                foreground=P.OK)
+                foreground=P.OK_INK)
             self.bar["value"] = 1000
-            self.dl_btn.state(["disabled"])
+            self.dl_btn.set_enabled(False)
             self.detail_lbl.config(text="")
         elif state == "running":
             done, total = self._prog["done"], max(1, self._prog["total"])
@@ -167,8 +180,9 @@ class OnboardingWindow:
             self.detail_lbl.config(
                 text=f"{_mb(done)} of {_mb(total)}"
                      + (f" · {_mb(speed)}/s · about {eta / 60:.0f} min left" if eta else ""))
-            self.dl_btn.config(text="Cancel", command=self._cancel_download)
-            self.dl_btn.state(["!disabled"])
+            self.dl_btn.configure_text("Cancel")
+            self.dl_btn.set_command(self._cancel_download)
+            self.dl_btn.set_enabled(True)
         elif state == "verifying":
             self.model_lbl.config(text="Checking the download…", foreground=P.MUTED)
             self.detail_lbl.config(text="Windows may scan the file, this takes a moment.")
@@ -181,8 +195,9 @@ class OnboardingWindow:
                 msg = msg[:140] + "…"
             self.model_lbl.config(text=f"Download failed: {msg}", foreground=P.DANGER)
             self.detail_lbl.config(text="Your progress is kept - trying again resumes.")
-            self.dl_btn.config(text="Try again", command=self._start_download)
-            self.dl_btn.state(["!disabled"])
+            self.dl_btn.configure_text("Try again")
+            self.dl_btn.set_command(self._start_download)
+            self.dl_btn.set_enabled(True)
         else:
             self.model_lbl.config(
                 text=(f"{model_manifest.MODEL_NAME} "
@@ -190,10 +205,11 @@ class OnboardingWindow:
                       "Downloaded once, then works offline forever."),
                 foreground=P.MUTED)
             self.bar["value"] = 0
-            self.dl_btn.config(text="Download model", command=self._start_download)
-            self.dl_btn.state(["!disabled"])
+            self.dl_btn.configure_text("Download model")
+            self.dl_btn.set_command(self._start_download)
+            self.dl_btn.set_enabled(True)
 
-        self.start_btn.state(["!disabled"] if ready else ["disabled"])
+        self.start_btn.set_enabled(ready)
         self.win.after(POLL_MS, self._refresh)
 
     def _cancel_download(self) -> None:
@@ -221,7 +237,7 @@ class OnboardingWindow:
 
     def run(self) -> bool:
         """Block until the window closes. True if setup was completed."""
-        winutil.place_near_tray(self.win, 500, 560)
+        winutil.place_near_tray(self.win, 540, 690)
         self.win.deiconify()
         self.win.focus_force()
         self.root.wait_window(self.win)

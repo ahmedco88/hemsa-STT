@@ -31,12 +31,31 @@ def test_every_value_is_uppercase_hex():
         assert HEX.match(value)
 
 
-def test_plum_matches_original_shipped_values():
+def test_plum_pins_shipped_values():
     plum = P.THEMES["plum"]
     assert plum["ACCENT"] == "#5B47A8"
-    assert plum["PAPER"] == "#F1EEFA"
+    assert plum["PAPER"] == "#F4F2F1"
+    assert plum["LINE"] == "#E6E2E3"
+    assert plum["MIST"] == "#ECE8EA"
     assert plum["DARK_ACCENT"] == "#B7A7EC"
     assert plum["DARK_GROUND"] == "#150F24"
+
+
+def test_status_inks_exist_and_are_hex():
+    for value in (P.OK_INK, P.TRANSPARENT_KEY):
+        assert HEX.match(value)
+
+
+def test_palette_is_the_only_file_with_hex():
+    """One file holds colour. Three copies of the HUD transparent key were the
+    drift shape this guards against (found 2026-09-03)."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1] / "hemsa"
+    hexes = re.compile(r"""["']#[0-9A-Fa-f]{3,12}["']""")
+    offenders = [f"{p.relative_to(root)}: {m.group(0)}"
+                 for p in sorted(root.rglob("*.py")) if p.name != "palette.py"
+                 for m in hexes.finditer(p.read_text(encoding="utf-8"))]
+    assert offenders == [], offenders
 
 
 def test_set_theme_rebinds_module_attributes():
