@@ -152,8 +152,14 @@ def sanitize(raw_out: str, raw_in: str, done_reason: str = "stop") -> str | None
     return out
 
 
-def clean(text: str, cfg: dict) -> str | None:
-    """Returns cleaned text, or None (caller pastes raw). Never raises."""
+def clean(text: str, cfg: dict) -> tuple[str | None, list[str]]:
+    """Returns (cleaned text or None, numbers the model invented).
+
+    The second value exists so the UI can SAY that a cleanup was refused. Every
+    other failure here - a stopped Ollama, a truncated reply, a bad model name -
+    produces the same screen as a refusal: the user gets their own words. Only one
+    of those means "the model just tried to hand you a number nobody said", and
+    that one is worth interrupting for. Never raises."""
     try:
         t0 = time.perf_counter()
         r = requests.post(
@@ -177,15 +183,20 @@ def clean(text: str, cfg: dict) -> str | None:
         body = r.json()
         if "error" in body:              # Ollama reports missing model etc. as JSON error
             log.info("ollama error: %s", body["error"])
-            return None
-        out = sanitize(body["message"]["content"], text, body.get("done_reason", "stop"))
+            return None, []
+        raw = body["message"]["content"]
+        out = sanitize(raw, text, body.get("done_reason", "stop"))
         if out is not None:
             log.info("cleaned %d->%d chars in %.0f ms", len(text), len(out),
                      (time.perf_counter() - t0) * 1000)
-        return out
+            return out, []
+        # sanitize has already logged which guard fired. Recompute only the one the
+        # user needs telling about: the others (down, truncated, rambling) all end
+        # with their own words on screen and nothing to act on.
+        return None, _invented_numbers(text, _strip(raw, text))
     except Exception as exc:
         log.info("cleanup unavailable: %s", exc)
-        return None
+        return None, []
 
 
 def warm_up(cfg: dict) -> None:

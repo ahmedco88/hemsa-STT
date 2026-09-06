@@ -252,3 +252,63 @@ def test_a_number_may_be_spread_across_tokens_but_not_hidden_inside_one():
                                      "BP 130 over 80.") == []
     assert cleanup._invented_numbers("she is on metformin 1500 mg",
                                      "Start 500 mg.") == ["500"]
+
+
+# ---- clean() has to say WHY, or the UI cannot ----------------------------
+
+class _Reply:
+    def __init__(self, content, done="stop"):
+        self._content, self._done = content, done
+
+    def json(self):
+        return {"message": {"content": self._content}, "done_reason": self._done}
+
+
+CLEAN_CFG = {"ollama_url": "http://x", "cleanup_model": "m"}
+
+
+def _post(monkeypatch, content, done="stop"):
+    monkeypatch.setattr(cleanup.requests, "post",
+                        lambda *a, **k: _Reply(content, done))
+
+
+def test_clean_reports_the_numbers_the_model_invented(monkeypatch):
+    """Every other failure - Ollama stopped, a truncated reply, a bad model name -
+    leaves the user looking at their own words, exactly like a refusal does. Only
+    this one is worth interrupting for, so only this one is reported upwards."""
+    _post(monkeypatch, "The starting dose of metformin for type 2 diabetes is 500 mg.")
+    out, invented = cleanup.clean("what is the starting dose of metformin for type 2 "
+                                  "diabetes", CLEAN_CFG)
+    assert out is None
+    assert invented == ["500"]
+
+
+def test_clean_reports_a_number_the_model_spelled_out(monkeypatch):
+    """controller writes digits AFTER the cleanup, so a reply with no digit in it
+    still reaches the cursor as one. The notice has to name it too."""
+    _post(monkeypatch, "The starting dose of metformin is five hundred milligrams.")
+    out, invented = cleanup.clean("what is the starting dose of metformin", CLEAN_CFG)
+    assert out is None and invented == ["500"]
+
+
+def test_clean_says_nothing_when_a_cleanup_simply_worked(monkeypatch):
+    _post(monkeypatch, "The patient needs a repeat script for metformin.")
+    out, invented = cleanup.clean("um the patient needs a repeat script for metformin",
+                                  CLEAN_CFG)
+    assert out is not None and invented == []
+
+
+def test_clean_stays_quiet_when_ollama_is_simply_unreachable(monkeypatch):
+    """Nothing to interrupt for: a stopped server is already visible in Settings, and
+    a notice on every dictation would train the user to ignore the one that matters."""
+    def boom(*a, **k):
+        raise OSError("connection refused")
+    monkeypatch.setattr(cleanup.requests, "post", boom)
+    assert cleanup.clean("anything at all", CLEAN_CFG) == (None, [])
+
+
+def test_clean_stays_quiet_on_an_ollama_error_body(monkeypatch):
+    monkeypatch.setattr(cleanup.requests, "post",
+                        lambda *a, **k: type("R", (), {"json": staticmethod(
+                            lambda: {"error": "model not found"})})())
+    assert cleanup.clean("anything at all", CLEAN_CFG) == (None, [])

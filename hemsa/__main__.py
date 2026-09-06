@@ -84,6 +84,7 @@ class App:
         })
         self.ctl.on_state = self._on_state
         self.ctl.on_paste_risk = self.chip.flash
+        self.ctl.on_cleanup_blocked = self.chip.notice
 
         self.hotkey = hotkey_mod.Hotkey(
             lambda: self.post(self.ctl.hotkey_press),

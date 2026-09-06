@@ -167,11 +167,12 @@ follow, and all three matter:
 
 - **It is a backstop, not a filter.** It cannot catch an answer that contains no number
   at all: "what is first line for hypertension" answered with a drug name goes through.
-- **A rejection is invisible.** You simply get your own words, tidied only by the rules
-  pass. So if you run this test and the text comes out plain, that is Hemsa blocking
-  something. It is not proof the model behaved, and it is not proof it misbehaved
-  either: a stopped Ollama looks identical. `%LOCALAPPDATA%\Hemsa\hemsa.log` is the only
-  place that says which it was, and it names the numbers it refused.
+- **A refusal says so.** A small notice appears beside the orb, naming the number the
+  model tried to add, and you get your own words instead. That matters because the
+  alternative outcomes look identical on screen: a stopped Ollama also leaves you
+  reading your own words, and without the notice you could not tell "it tried to hand
+  me a dose" from "the model never ran". `%LOCALAPPDATA%\Hemsa\hemsa.log` keeps the
+  same detail if you miss it.
 - **"Checked" is not "safe".** `qwen3.5:2b` is the only model put through this and
   passed, and that is one dictated sentence, one run: a test case, not an evaluation.
   Settings says in amber when you choose a model that has not had even that.

@@ -7,6 +7,7 @@ Never steals focus, same as the orb and HUD.
 """
 
 import tkinter as tk
+from tkinter import font as tkfont
 
 import pyperclip
 
@@ -16,7 +17,9 @@ from . import theme
 from .scale import px
 
 W, H = 108, 34           # logical; self.w / self.h are the px() ones
+PAD = 18                 # logical, either side of a measured label
 SHOW_MS = 7000
+NOTICE_MS = 11000        # longer: it is read, not clicked, and it is a safety message
 
 
 class CopyChip:
@@ -40,6 +43,23 @@ class CopyChip:
     def flash(self) -> None:
         """Show next to the orb, auto-hide after SHOW_MS."""
         self._draw("Copy text")
+        self._place(SHOW_MS)
+
+    def notice(self, numbers: list[str]) -> None:
+        """Say that a cleanup was REFUSED because the model invented a number.
+
+        Lives here rather than in its own file because it is the same pill, the same
+        no-activate window and the same placement beside the orb, and the two must not
+        drift apart into two different-looking popups.
+
+        It exists because a refusal is otherwise indistinguishable from Ollama being
+        stopped: both leave the user looking at their own untidied words. That
+        ambiguity is what made "test your own model" impossible to act on."""
+        self._draw("Cleanup blocked",
+                   f"it added {', '.join(numbers[:3])}, which you did not say")
+        self._place(NOTICE_MS)
+
+    def _place(self, hide_after: int) -> None:
         ox, oy = self._orb.win.winfo_x(), self._orb.win.winfo_y()
         left, top, right, _b = winutil.work_area()
         orb_w, gap = self._orb.size, px(10)
@@ -49,7 +69,7 @@ class CopyChip:
         self.win.geometry(f"{self.w}x{self.h}+{x}+{y}")
         self.win.deiconify()
         winutil.set_noactivate(self.win)   # style can reset on re-show
-        self._schedule_hide(SHOW_MS)
+        self._schedule_hide(hide_after)
 
     def _schedule_hide(self, ms: int) -> None:
         if self._hide_job:
@@ -68,15 +88,32 @@ class CopyChip:
         self._draw("Copied ✓")
         self._schedule_hide(1200)
 
-    def _draw(self, label: str) -> None:
+    def _draw(self, label: str, detail: str = "") -> None:
+        """One pill, one or two lines. The width is measured rather than fixed once a
+        detail line is involved, because a clipped safety message is worse than none."""
         c = self.canvas
+        if detail:
+            metric = tkfont.Font(root=self.win, font=theme.F.dark_small)
+            self.w = metric.measure(detail) + 2 * px(PAD)
+            self.h = px(H) + px(16)
+            edge = P.WARN
+        else:
+            self.w, self.h = px(W), px(H)
+            edge = P.DARK_ACCENT
+        c.configure(width=self.w, height=self.h)
         c.delete("all")
         w, h = self.w, self.h
-        r, e = h / 2, 2 * (w / W)
-        c.create_oval(e, e, h - e, h - e, fill=P.DARK_CARD, outline=P.DARK_ACCENT)
-        c.create_oval(w - h + e, e, w - e, h - e, fill=P.DARK_CARD, outline=P.DARK_ACCENT)
+        r, e = h / 2, 2 * (px(W) / W)
+        c.create_oval(e, e, h - e, h - e, fill=P.DARK_CARD, outline=edge)
+        c.create_oval(w - h + e, e, w - e, h - e, fill=P.DARK_CARD, outline=edge)
         c.create_rectangle(r, e, w - r, h - e, fill=P.DARK_CARD, outline=P.DARK_CARD)
-        c.create_line(r, e, w - r, e, fill=P.DARK_ACCENT)
-        c.create_line(r, h - e, w - r, h - e, fill=P.DARK_ACCENT)
-        c.create_text(w / 2, h / 2, text=label, fill=P.DARK_INK,
+        c.create_line(r, e, w - r, e, fill=edge)
+        c.create_line(r, h - e, w - r, h - e, fill=edge)
+        if not detail:
+            c.create_text(w / 2, h / 2, text=label, fill=P.DARK_INK,
+                          font=theme.F.dark_bold)
+            return
+        c.create_text(w / 2, h / 2 - px(9), text=label, fill=P.WARN,
                       font=theme.F.dark_bold)
+        c.create_text(w / 2, h / 2 + px(9), text=detail, fill=P.DARK_MUTED,
+                      font=theme.F.dark_small)

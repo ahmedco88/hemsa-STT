@@ -131,3 +131,28 @@ def test_star_ignores_a_release_outside_its_box(top):
     star.event_generate("<ButtonRelease-1>", x=star.size + 40, y=2)
     assert star.on is False and seen == []
     star.destroy()
+
+
+def test_the_blocked_notice_names_the_number_and_keeps_the_pill(top):
+    """A refusal is otherwise indistinguishable from Ollama being stopped: both leave
+    the user looking at their own untidied words. It shares the rescue chip's pill and
+    placement deliberately, so the two do not drift into different-looking popups."""
+    from hemsa.ui import copy_chip
+
+    class _Orb:
+        size = 56
+        win = top
+
+    chip = copy_chip.CopyChip(top, _Orb(), lambda: "")
+    chip.notice(["500", "4"])
+    texts = [chip.canvas.itemcget(i, "text") for i in chip.canvas.find_all()
+             if chip.canvas.type(i) == "text"]
+    assert "Cleanup blocked" in texts
+    assert any("500, 4" in t and "did not say" in t for t in texts)
+    assert chip.w > copy_chip.W        # measured, so the message is not clipped
+
+    chip.flash()                       # the rescue chip still draws its own way
+    texts = [chip.canvas.itemcget(i, "text") for i in chip.canvas.find_all()
+             if chip.canvas.type(i) == "text"]
+    assert texts == ["Copy text"]
+    chip.win.destroy()

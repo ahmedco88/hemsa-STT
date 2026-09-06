@@ -27,6 +27,7 @@ class Controller:
         self.state = "idle"                      # idle | recording | processing
         self.on_state = lambda state: None       # UI hook, called on main thread
         self.on_paste_risk = lambda: None        # UI hook: the paste may not have landed
+        self.on_cleanup_blocked = lambda nums: None   # UI hook: the model invented a number
         self.last_text = ""
         self._target_hwnd = 0                    # window being dictated into, set at start
         self._trigger = "hotkey"                 # hotkey | orb - decides the rescue chip
@@ -105,9 +106,14 @@ class Controller:
             if mode == "fast":
                 text = fastclean.clean(text)
             elif mode == "ai":
-                cleaned = cleanup.clean(text, self.cfg)
+                cleaned, invented = cleanup.clean(text, self.cfg)
                 if cleaned is not None:
                     text = cleaned
+                elif invented:
+                    # The one cleanup failure worth interrupting for. Everything
+                    # else that returns None looks identical on screen - the user
+                    # gets their own words - so only this one says anything.
+                    self.post(lambda n=invented: self.on_cleanup_blocked(n))
                 # digits and unit symbols are a house style, not a cleanup mode:
                 # the model is inconsistent about them and this pass is not.
                 text = fastclean.numerals(text)
