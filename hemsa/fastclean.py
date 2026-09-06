@@ -141,8 +141,22 @@ def _sub_run(m: re.Match) -> str:
     joined = _run_to_digits(words)
     if joined is not None:
         return joined
-    # not one number: convert each word on its own so nothing is left half done
-    return " ".join(str(_ONES.get(w, _TENS.get(w, w))) for w in words if w != "and")
+    # Not one number. Split it into the longest well-formed numbers it does contain,
+    # rather than one digit per word: "one seventy five" is a person reading 1 and 75,
+    # so "1 75" is right and "1 70 5" is noise. "one ten" still splits to "1 10",
+    # because that IS two readings and merging it would be a guess at a blood pressure.
+    out, rest = [], [w for w in words if w != "and"]
+    while rest:
+        for size in range(len(rest), 0, -1):
+            piece = _run_to_digits(rest[:size])
+            if piece is not None:
+                out.append(piece)
+                rest = rest[size:]
+                break
+        else:                                    # unreachable: one word always folds
+            out.append(rest[0])
+            rest = rest[1:]
+    return " ".join(out)
 
 
 def numerals(text: str) -> str:

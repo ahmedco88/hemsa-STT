@@ -12,6 +12,8 @@ import time
 
 import requests
 
+from . import fastclean
+
 log = logging.getLogger("hemsa.cleanup")
 
 SYSTEM_PROMPT = (
@@ -50,6 +52,73 @@ def _word_overlap(inp: str, out: str) -> float:
     return len(words & out_words) / len(words)
 
 
+# Not a whitelist of what will RUN - any installed model can be chosen. It is the
+# list of models put through the answer trap that PASSED. Others were measured and
+# are absent because they failed: every 1B-class model tested on 2026-08-23, and
+# gemma3:4b on 2026-09-06. Adding a name here is a claim that the case was run.
+#
+# And it is one dictated sentence, one run, one prompt - a test case, not an eval.
+# Nothing downstream may describe a model in this list as safe, only as checked.
+CHECKED_MODELS = ("qwen3.5:2b",)
+
+# A cleanup cannot invent a number. An ANSWER to a dictated question is mostly a
+# number that was never said, which is exactly what the overlap and length guards
+# cannot see: an answer repeats the question's own words and runs to a similar
+# length. Measured on the real failure, ratio 1.36 and overlap 0.62, both inside
+# their thresholds by a hair.
+#
+# 2026-09-06, gemma3:4b, pasted at Ahmed's cursor: "What is the starting dose of
+# metformin for type 2 diabetes recently diagnosed?" came back as "...is typically
+# 500 mg taken once or twice daily with meals."
+#
+# An earlier version of this guard asked instead whether the spoken wh-word
+# survived into the reply. It was leaky AND expensive: a model that echoes the
+# question before answering it ("What is the usual dose...? Typically 500 mg.")
+# kept the wh-word and sailed through, while a legitimate cleanup that reworded a
+# self-correction ("so how, how do I put this, the patient is...") lost its
+# cleanup for nothing. Presence of a word cannot tell "preserved" from "quoted".
+#
+# KNOWN GAP, stated because the README must not overclaim: an answer carrying NO
+# number is not caught here. The word-overlap guard above catches most of those,
+# because an answer that does not echo the question drops most of its words - but
+# an echo-then-answer with no digits in it ("What is first line for hypertension?
+# ACE inhibitors.") passes both. This is a backstop, not a filter.
+_NUM_RE = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+def _invented_numbers(inp: str, out: str) -> list[str]:
+    """Numbers in the reply that were never spoken. Fails safe: the caller pastes
+    the raw dictation, so a false positive costs the cleanup, never the words.
+
+    BOTH sides are read as dictated AND through fastclean.numerals, and that is not
+    symmetry for its own sake:
+
+    - Input side, so a model turning "five hundred milligrams" into "500 mg" is not
+      accused of inventing the 500.
+    - Output side, because `controller` runs numerals() on the ACCEPTED text before
+      it reaches the cursor. Checking `out` alone let a model answer in words - "is
+      five hundred milligrams with meals" carries no digit, passed every guard, and
+      Hemsa's own number pass then wrote "500 mg" at the cursor. The guard has to
+      see the string the user will actually get.
+
+    A number may also be spread across tokens, because numerals deliberately refuses
+    to merge an ambiguous reading: "one thirty over eighty" stays "1 30 over 80" on
+    our side, so a model writing "130" is reading, not inventing. Only WHOLE
+    consecutive tokens count. An earlier version tested against the digit stream as
+    a substring, which forgave a fabricated "500" for a dictation that happened to
+    mention 1500, and a fabricated "5" for anything containing a 5 at all."""
+    spoken = fastclean.numerals(inp)
+    said = set(_NUM_RE.findall(inp)) | set(_NUM_RE.findall(spoken))
+    tokens = _NUM_RE.findall(spoken)
+    for i in range(len(tokens)):                 # "1" + "30" -> "130", not "1500"[1:]
+        run = ""
+        for token in tokens[i:]:
+            run += token
+            said.add(run)
+    written = set(_NUM_RE.findall(out)) | set(_NUM_RE.findall(fastclean.numerals(out)))
+    return sorted(written - said)
+
+
 def sanitize(raw_out: str, raw_in: str, done_reason: str = "stop") -> str | None:
     """Pure response validation, separated so tests can feed canned responses."""
     if done_reason != "stop":            # capped output = a loop or truncation, not a cleanup
@@ -59,13 +128,26 @@ def sanitize(raw_out: str, raw_in: str, done_reason: str = "stop") -> str | None
     if not out:
         log.info("rejected: empty after stripping")
         return None
-    ratio = len(out) / max(1, len(raw_in))
-    if not 0.5 <= ratio <= 1.5:          # cleanup trims fillers; it never halves or doubles text
-        log.info("rejected: length ratio %.2f", ratio)
+    # Both the length and the overlap guard are measured against the dictation as
+    # spoken AND with its numbers and units written out (fastclean.numerals), and the
+    # kinder reading wins. "she weighs eighty kilograms and is one seventy five
+    # centimetres" cleaned to "She weighs 80 kg and is 175 cm." is a correct edit that
+    # measures as a 0.49 ratio and a 0.17 overlap against the raw words - both
+    # rejections, and both of exactly the clinical dictation these guards exist for.
+    spoken = fastclean.numerals(raw_in)
+    ratios = [len(out) / max(1, len(raw_in)), len(out) / max(1, len(spoken))]
+    if not any(0.5 <= r <= 1.5 for r in ratios):   # a cleanup never halves or doubles
+        log.info("rejected: length ratio %.2f", ratios[0])
         return None
-    overlap = _word_overlap(raw_in, out)
+    overlap = max(_word_overlap(raw_in, out), _word_overlap(spoken, out))
     if overlap < 0.6:                    # the model answered/summarised instead of editing
         log.info("rejected: word overlap %.2f", overlap)
+        return None
+    invented = _invented_numbers(raw_in, out)
+    if invented:
+        log.warning("rejected: reply contains number(s) %s that were never dictated - "
+                    "the model answered instead of tidying. Pasting what was said.",
+                    ", ".join(invented))
         return None
     return out
 

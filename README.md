@@ -143,7 +143,40 @@ only re-checks at the moments that matter, so it will not notice on its own.
 **Settings > Ollama model** lists the models Ollama has on this PC, so you pick from
 what is installed instead of typing a name. Your current model stays in the list even
 when Ollama is stopped, so the setting is never rewritten behind your back, and the
-status line underneath names the model if it cannot find it. `ollama_url` in
+status line underneath names the model if it cannot find it.
+
+To add one, fetch it with Ollama first and it appears in the list:
+
+```
+ollama pull qwen3.5:2b
+```
+
+Hemsa does not download **Ollama** models for you (the speech model on first run is
+the one thing it does fetch). An Ollama pull is a multi-gigabyte download with its own
+progress output, and it belongs in a terminal where you can see it. **Models kept in
+LM Studio, GPT4All or llama.cpp are not visible to Hemsa**: it speaks Ollama's API, so
+a model has to be in Ollama.
+
+🔴 **Before you trust a new model, dictate a question at it.** A small model will often
+**answer** a dictated question rather than tidy it, which on a clinical note means
+inventing a dose. Every 1B-class model tested here has done it, and so has `gemma3:4b`.
+
+Hemsa rejects a reply carrying a number that was not in what you said, whether the model
+writes it in digits or in words, and pastes what you actually said instead. Three things
+follow, and all three matter:
+
+- **It is a backstop, not a filter.** It cannot catch an answer that contains no number
+  at all: "what is first line for hypertension" answered with a drug name goes through.
+- **A rejection is invisible.** You simply get your own words, tidied only by the rules
+  pass. So if you run this test and the text comes out plain, that is Hemsa blocking
+  something. It is not proof the model behaved, and it is not proof it misbehaved
+  either: a stopped Ollama looks identical. `%LOCALAPPDATA%\Hemsa\hemsa.log` is the only
+  place that says which it was, and it names the numbers it refused.
+- **"Checked" is not "safe".** `qwen3.5:2b` is the only model put through this and
+  passed, and that is one dictated sentence, one run: a test case, not an evaluation.
+  Settings says in amber when you choose a model that has not had even that.
+
+`ollama_url` in
 `%LOCALAPPDATA%\Hemsa\config.json` is editable too, if your Ollama is on another
 machine on your network. Be careful swapping in something smaller than `qwen3.5:2b`: every 1B
 model tested answered a dictated *question* instead of transcribing it, which for
