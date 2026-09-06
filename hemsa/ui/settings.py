@@ -12,10 +12,14 @@ from tkinter import ttk
 from .. import audio, cleanup, config, hotkey, palette as P, winutil
 from . import theme
 from .scale import px
-from .widgets import RoundCard, ScrollFrame, Toggle
+from .widgets import PillButton, RoundCard, ScrollFrame, Toggle
 
 PAD = 40                 # logical px, through px() at use time
 POLL_MS = 3000
+
+_AUTOSTART_OK = "Hemsa opens in the tray when you sign in."
+_AUTOSTART_BLOCKED = ("Windows has this switched off under Task Manager, Startup apps. "
+                      "Turn it back on there.")
 
 _HINTS = {
     "off": "Paste exactly what was heard.",
@@ -82,7 +86,9 @@ class SettingsPage(tk.Frame):
             self._swatches[name] = (sw, oid)
             self._cardw.append(sw)
 
-        self._toggle(body, "Start with Windows", None, "autostart", extra=self._apply_autostart)
+        self._toggle(body, "Start with Windows", _AUTOSTART_OK, "autostart",
+                     extra=self._apply_autostart)
+        self.autostart_hint = self._last_hint
         self._toggle(body, "Sounds", "A soft tick on start and stop.", "sounds")
         self._toggle(body, "Floating orb", "Click it to dictate without the key.", "show_orb",
                      extra=lambda: self.app.orb.show(self.app.cfg["show_orb"]))
@@ -103,18 +109,32 @@ class SettingsPage(tk.Frame):
         mode.pack()
         mode.bind("<<ComboboxSelected>>", lambda e: self._set_mode())
 
-        right = self._row(body, "Ollama model", "Used only in Full mode.")
+        # A typed model name is a model that silently does not exist: the old free
+        # text box happily held a model Ollama had never pulled, and Full mode then
+        # fell back to raw paste with nothing on screen saying why. The list is
+        # whatever `ollama list` would print on this PC.
+        right = self._row(body, "Ollama model",
+                          "Used only in Full mode. Choose from the models Ollama "
+                          "has on this PC.")
         self.model_var = tk.StringVar(value=cfg["cleanup_model"])
-        entry = ttk.Entry(right, textvariable=self.model_var, width=16, style="Card.TEntry")
-        entry.pack()
-        entry.bind("<FocusOut>",
-                   lambda e: self._set("cleanup_model", self.model_var.get().strip()))
+        self.model_box = ttk.Combobox(right, textvariable=self.model_var, state="readonly",
+                                      width=20, style="Hemsa.TCombobox")
+        self.model_box.pack()
+        self.model_box.bind("<<ComboboxSelected>>",
+                            lambda e: self._set("cleanup_model", self.model_var.get()))
+        self._fill_models([])
 
         body = self._card("On this PC")
         self.engine_dot, self.engine_lbl = self._status_row(
             body, "Speech engine", "Parakeet v2 (English)", first=True)
         self.ollama_dot, self.ollama_lbl = self._status_row(
             body, "Ollama", "Local model for Full cleanup")
+        # Ollama does not always start with Windows (the AMD bundle build never
+        # does), so the page that reports it down is the page that should fix it.
+        self.start_ollama = PillButton(self.ollama_lbl.master, "Start Ollama",
+                                       kind="ghost", ground="CARD", padx=12, pady=5,
+                                       command=self._on_start_ollama)
+        self._widgets.append(self.start_ollama)
 
         foot = tk.Frame(self._page)
         foot.pack(fill="x", padx=px(PAD), pady=(px(18), px(20)))
@@ -184,6 +204,7 @@ class SettingsPage(tk.Frame):
         for key in ("autostart", "sounds", "show_orb", "update_check"):
             getattr(self, f"_var_{key}").set(bool(cfg[key]))
         self._update_hint()
+        self._update_autostart_hint()
         self._paint_swatches()
         self._refresh_status()
 
@@ -212,6 +233,35 @@ class SettingsPage(tk.Frame):
             winutil.set_autostart(self.app.cfg["autostart"])
         except OSError:
             pass
+        self._update_autostart_hint()
+
+    def _update_autostart_hint(self) -> None:
+        """Read the OS, not the config. A stored preference and the state it is
+        meant to produce are two different facts, and this toggle read "on" for
+        over a week while the Run value it describes had been deleted."""
+        blocked = self.app.cfg["autostart"] and winutil.autostart_blocked()
+        self.autostart_hint.configure(
+            text=_AUTOSTART_BLOCKED if blocked else _AUTOSTART_OK,
+            foreground=P.WARN if blocked else P.MUTED)
+
+    def _fill_models(self, names: list[str]) -> None:
+        """The configured model stays in the list even when Ollama is down or the
+        model has been removed - dropping it would quietly rewrite the setting to
+        whatever happened to sort first."""
+        current = self.app.cfg["cleanup_model"]
+        values = sorted({*names, current})
+        if tuple(self.model_box.cget("values")) != tuple(values):
+            self.model_box.configure(values=values)
+        self.model_var.set(current)
+
+    def _on_start_ollama(self) -> None:
+        problem = cleanup.start_server()
+        if problem:
+            self.ollama_lbl.configure(text=problem, foreground=P.DANGER)
+            return
+        # no second poll loop: _refresh_status is already running on this page and
+        # will flip the dot the moment the server answers.
+        self.ollama_lbl.configure(text="Starting Ollama…", foreground=P.WARN)
 
     def _refresh_status(self) -> None:
         if not self.winfo_exists():
@@ -226,14 +276,20 @@ class SettingsPage(tk.Frame):
         self.engine_dot.itemconfigure("dot", fill=P.OK if e.state == "loaded" else colour)
         # only poll Ollama while the page is on screen
         if self.winfo_ismapped():
-            s = cleanup.status(self.app.cfg)
+            s, names = cleanup.probe(self.app.cfg)
             text, colour = {
                 "ready": ("Ollama, ready", P.OK_INK),
-                "no model": ("Ollama, model not pulled", P.WARN),
+                "no model": (f"Ollama is running, but {self.app.cfg['cleanup_model']} "
+                             "is not one of its models", P.WARN),
                 "down": ("Ollama, not running (raw paste still works)", P.WARN),
             }[s]
             self.ollama_lbl.configure(text=text, foreground=colour)
             self.ollama_dot.itemconfigure("dot", fill=P.OK if s == "ready" else colour)
+            if s == "down":
+                self.start_ollama.pack(side="left", padx=(px(12), 0))
+            else:
+                self.start_ollama.pack_forget()
+                self._fill_models(names)     # only trust a list we actually got
             self.after(POLL_MS, self._refresh_status)
 
     # ---- theme ----

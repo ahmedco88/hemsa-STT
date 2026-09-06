@@ -118,15 +118,44 @@ def warm_up(cfg: dict) -> None:
         pass
 
 
+def _same_model(configured: str, installed: str) -> bool:
+    """Ollama stores an untagged pull as ":latest", so "gemma3" and "gemma3:latest"
+    name the same thing. Everything else must match in full. Matching on the base
+    name alone (the old behaviour) reported "ready" for qwen3.5:2b while only
+    qwen3.5:0.8b was pulled - and the difference between those two is a model that
+    tidies a dictated question and one that answers it with a drug dose."""
+    def tagged(name: str) -> str:
+        name = name.strip()
+        return name if ":" in name else f"{name}:latest"
+    return tagged(configured) == tagged(installed)
+
+
+def _tags(cfg: dict) -> list[str] | None:
+    """Model names this PC's Ollama has pulled, or None if it did not answer."""
+    try:
+        body = requests.get(f"{cfg['ollama_url']}/api/tags", timeout=(1.0, 3)).json()
+        return sorted(m["name"] for m in body.get("models", []) if m.get("name"))
+    except Exception as exc:
+        log.info("could not reach ollama: %s", exc)
+        return None
+
+
+def probe(cfg: dict) -> tuple[str, list[str]]:
+    """('ready' | 'no model' | 'down', installed model names).
+
+    One request for both, because the settings page needs the status dot AND the
+    model list on the same 3 s poll. An empty list with a 'down' status means we
+    do not KNOW what is installed, which is not the same as "nothing is"."""
+    names = _tags(cfg)
+    if names is None:
+        return "down", []
+    ok = any(_same_model(cfg["cleanup_model"], n) for n in names)
+    return ("ready" if ok else "no model"), names
+
+
 def status(cfg: dict) -> str:
     """'ready' | 'no model' | 'down' - for the settings/tray status dot."""
-    try:
-        tags = requests.get(f"{cfg['ollama_url']}/api/tags", timeout=(1.0, 3)).json()
-        names = [m.get("name", "") for m in tags.get("models", [])]
-        base = cfg["cleanup_model"].split(":")[0]
-        return "ready" if any(n.startswith(base) for n in names) else "no model"
-    except Exception:
-        return "down"
+    return probe(cfg)[0]
 
 
 def start_server() -> str:

@@ -108,6 +108,9 @@ class Controller:
                 cleaned = cleanup.clean(text, self.cfg)
                 if cleaned is not None:
                     text = cleaned
+                # digits and unit symbols are a house style, not a cleanup mode:
+                # the model is inconsistent about them and this pass is not.
+                text = fastclean.numerals(text)
             self.last_text = text
             landed = winutil.focus_window(self._target_hwnd)
             # "landed" only means we got the window back in front - it says nothing

@@ -226,24 +226,70 @@ def set_autostart(enabled: bool) -> None:
 def reconcile_autostart(cfg: dict) -> bool:
     """Put the Run value back when the settings say autostart but Windows disagrees.
 
-    The two drift in one direction only: an installer or an uninstaller can delete
-    the value, and nothing outside Hemsa ever writes it. Windows' own Startup Apps
-    UI disables an entry with a separate flag rather than removing it, so a MISSING
-    value means something deleted it behind the user's back. Repairing silently is
-    right here, because the Settings toggle already claims it is on and the only
-    alternative is a lie on screen. Returns True if it repaired anything.
+    Two ways they drift, and only the first was ever handled: an installer or an
+    uninstaller can DELETE the value, and a value can be left pointing at a copy
+    of Hemsa that no longer exists (a project folder that moved, an install that
+    was removed and replaced). Both look identical from the Settings toggle,
+    which goes on saying "on" either way.
+
+    A value pointing at a file that IS there is left alone even when it is not
+    this copy: running from source for five minutes must not quietly repoint the
+    user's sign-in at the repo. Windows' own Startup Apps UI *disables* an entry
+    with a separate flag rather than removing it (see autostart_blocked), so a
+    missing or dangling value always means something changed it behind the user's
+    back. Never turns autostart ON against a user's OFF. True if it repaired.
     """
-    if not cfg.get("autostart") or get_autostart():
+    if not cfg.get("autostart"):
+        return False
+    current = autostart_value()
+    if current is not None and _command_target(current).exists():
         return False
     set_autostart(True)
     return True
 
 
-def get_autostart() -> bool:
+def _command_target(command: str) -> Path:
+    """The file a Run value would execute, without its quotes or arguments."""
+    command = command.strip()
+    if command.startswith('"'):
+        return Path(command[1:].split('"', 1)[0])
+    return Path(command.split(" ", 1)[0])
+
+
+def autostart_value() -> str | None:
+    """The command Windows will run for Hemsa at sign-in, or None if there is none."""
     import winreg
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
-            winreg.QueryValueEx(k, "Hemsa")
-        return True
+            return winreg.QueryValueEx(k, "Hemsa")[0]
     except OSError:
-        return False
+        return None
+
+
+def get_autostart() -> bool:
+    return autostart_value() is not None
+
+
+_APPROVED_KEY = (r"Software\Microsoft\Windows\CurrentVersion\Explorer"
+                 r"\StartupApproved\Run")
+
+
+def autostart_blocked() -> bool:
+    """True when Windows has DISABLED our Run entry (Task Manager > Startup apps,
+    or Settings > Startup). Explorer records that here as a 12-byte blob whose
+    first byte is 2 or 3 for disabled and 0 or 6 for enabled; no value at all
+    means enabled, which is the normal case. Hemsa must not write this key - it
+    is the user's switch, not ours - but it has to READ it, because a toggle that
+    says "on" over an entry Windows is ignoring is the exact lie that let
+    autostart stay broken unnoticed."""
+    data = _read_approved()
+    return bool(data) and data[0] in (2, 3)
+
+
+def _read_approved() -> bytes | None:
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _APPROVED_KEY) as k:
+            return winreg.QueryValueEx(k, "Hemsa")[0]
+    except OSError:
+        return None

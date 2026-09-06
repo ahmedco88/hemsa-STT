@@ -17,7 +17,7 @@ def test_removes_fillers_and_capitalises():
         "um so the patient needs a repeat script for metformin and you know a "
         "follow up in two weeks")
     assert out == ("So the patient needs a repeat script for metformin and a "
-                   "follow up in two weeks.")
+                   "follow up in 2 weeks.")
 
 
 def test_never_answers_a_question():
@@ -72,7 +72,7 @@ def test_blank_input_survives(blank):
 
 
 def test_short_fragment_gets_no_full_stop():
-    assert fastclean.clean("two weeks") == "Two weeks"
+    assert fastclean.clean("next week") == "Next week"
 
 
 def test_is_fast():
@@ -84,3 +84,54 @@ def test_is_fast():
         fastclean.clean(src)
     per_call_ms = (time.perf_counter() - t0) * 1000 / 100
     assert per_call_ms < 5, f"{per_call_ms:.2f} ms per call"
+
+
+# ---- numerals and units -------------------------------------------------
+# Ahmed dictates clinical notes: he wants "16", "5 mg" and "80 kg", not the
+# words. Still rules-only, so none of this can invent a number that was not
+# said - which is the whole reason the conversion lives here and not in the
+# Ollama pass.
+
+@pytest.mark.parametrize("said, written", [
+    ("the patient is sixteen years old", "The patient is 16 years old."),
+    ("metformin five hundred milligrams twice daily", "Metformin 500 mg twice daily."),
+    ("he weighs eighty kilograms", "He weighs 80 kg."),
+    ("she is one hundred and seventy five centimetres tall",
+     "She is 175 cm tall."),
+    ("review in twenty four hours", "Review in 24 hours."),
+    ("sodium one hundred and thirty two millimoles per litre",
+     "Sodium 132 mmol per litre."),
+    ("zero point five milligrams of risperidone", "0.5 mg of risperidone."),
+    ("give five hundred micrograms", "Give 500 mcg."),
+])
+def test_numbers_and_units_are_written_the_way_a_note_is(said, written):
+    assert fastclean.clean(said) == written
+
+
+def test_bare_one_is_left_as_a_word_where_it_reads_as_one():
+    """"1 of the referrals" is worse English than the thing it replaced. Every
+    other number word is safe as a digit; "one of" is the case that is not."""
+    assert fastclean.clean("one of the referrals came back") == (
+        "One of the referrals came back.")
+    assert fastclean.clean("give one tablet daily") == "Give 1 tablet daily."
+
+
+def test_a_unit_word_with_no_number_in_front_is_left_alone():
+    """"kilograms" is only an abbreviation when it is measuring something. A
+    sentence that merely mentions the unit must survive untouched."""
+    out = fastclean.clean("she lost weight in kilograms over the year")
+    assert "kg" not in out and "kilograms" in out
+
+
+def test_two_separate_numbers_are_not_merged_into_one():
+    """A dictated blood pressure comes out in two pieces rather than guessed at:
+    merging "one ten" into 110 needs to know it is a blood pressure, and being
+    confidently wrong about a clinical number is the worse failure."""
+    assert fastclean.numerals("one ten over seventy") == "1 10 over 70"
+    assert fastclean.numerals("ninety nine") == "99"
+
+
+def test_numerals_never_invent_a_number():
+    """Nothing numeric may appear that was not spoken as a number word."""
+    src = "please send the referral to the cardiologist about the ecg"
+    assert not any(c.isdigit() for c in fastclean.clean(src))

@@ -140,9 +140,12 @@ only re-checks at the moments that matter, so it will not notice on its own.
 
 **Using a different model or machine**
 
-`cleanup_model` and `ollama_url` in `%LOCALAPPDATA%\Hemsa\config.json` are both
-editable, so you can point Hemsa at another model or at an Ollama on your
-network. Be careful swapping in something smaller than `qwen3.5:2b`: every 1B
+**Settings > Ollama model** lists the models Ollama has on this PC, so you pick from
+what is installed instead of typing a name. Your current model stays in the list even
+when Ollama is stopped, so the setting is never rewritten behind your back, and the
+status line underneath names the model if it cannot find it. `ollama_url` in
+`%LOCALAPPDATA%\Hemsa\config.json` is editable too, if your Ollama is on another
+machine on your network. Be careful swapping in something smaller than `qwen3.5:2b`: every 1B
 model tested answered a dictated *question* instead of transcribing it, which for
 a medical question means inventing a dose.
 
@@ -152,8 +155,13 @@ a medical question means inventing a dose.
 - **Speech-to-text:** [Parakeet TDT 0.6B v2](https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8)
   (int8, English) via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), CPU only,
   around 40x real time. Model licence: CC-BY-4.0.
-- **Optional cleanup:** a small local model (`qwen3.5:2b`) via [Ollama](https://ollama.com),
-  **off by default**. Tidies punctuation and filler words, still entirely on-device.
+- **Cleanup, in two flavours, off by default.** *Fast* is rules only: it drops
+  "um" and "uh", fixes spacing and capitals, and writes numbers and units the way
+  a note does, so "eighty kilograms" lands as "80 kg" and "sixteen" as "16". It is
+  a lookup table, so it cannot invent a number that was never said. *Full* adds a
+  small local model (`qwen3.5:2b`) via [Ollama](https://ollama.com), which also
+  fixes real mishearings, and gets the same numbers-and-units pass afterwards;
+  still entirely on-device.
 - **Word list:** one column of names and jargon the model keeps getting wrong. An
   exact pass fixes spelling and case, then a local fuzzy pass (difflib, about 0.3 ms,
   no AI) catches the near-misses. It is built to refuse: an entry for "Claude" will

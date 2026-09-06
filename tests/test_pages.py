@@ -99,3 +99,22 @@ def test_about_page_names_the_fonts(root, data):
     texts = list(labels(p))
     assert any("Instrument Serif" in str(t) for t in texts)
     p.destroy()
+
+
+def test_the_model_selector_cannot_be_typed_into(root, data, monkeypatch):
+    """A typed model name is a model that silently does not exist: Full mode then
+    falls back to raw paste with nothing on screen saying why. The control offers
+    what Ollama actually has, and always keeps the configured model in the list
+    even when Ollama is down - dropping it would rewrite the setting by itself."""
+    from hemsa import config
+    from hemsa.ui.settings import SettingsPage
+    app = _App(dict(config.DEFAULTS))
+    p = SettingsPage(root, app)
+    p.on_show()
+    assert str(p.model_box.cget("state")) == "readonly"
+    assert app.cfg["cleanup_model"] in p.model_box.cget("values")
+
+    p._fill_models(["gemma3:4b", "qwen3.5:2b"])
+    assert set(p.model_box.cget("values")) >= {"gemma3:4b", "qwen3.5:2b",
+                                               app.cfg["cleanup_model"]}
+    p.destroy()

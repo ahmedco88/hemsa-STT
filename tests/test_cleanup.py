@@ -92,3 +92,40 @@ def test_start_server_surfaces_an_oserror(monkeypatch):
     monkeypatch.setattr(cleanup.subprocess, "Popen", boom)
 
     assert "access denied" in cleanup.start_server()
+
+
+# ---- which model is actually installed ----------------------------------
+
+def _tags(monkeypatch, names):
+    monkeypatch.setattr(cleanup, "_tags", lambda cfg: names)
+
+
+CFG = {"ollama_url": "http://localhost:11434", "cleanup_model": "qwen3.5:2b"}
+
+
+def test_a_different_size_of_the_same_model_is_not_the_model(monkeypatch):
+    """The old check matched on the base name, so qwen3.5:0.8b passed as
+    qwen3.5:2b - and every 1B-class model tested answered a dictated question
+    with a drug dose. Same family is not the same model."""
+    _tags(monkeypatch, ["qwen3.5:0.8b", "gemma3:4b"])
+    assert cleanup.probe(CFG)[0] == "no model"
+
+
+def test_the_installed_model_reads_ready(monkeypatch):
+    _tags(monkeypatch, ["gemma3:4b", "qwen3.5:2b"])
+    state, names = cleanup.probe(CFG)
+    assert state == "ready"
+    assert names == ["gemma3:4b", "qwen3.5:2b"]
+
+
+def test_an_untagged_name_means_latest(monkeypatch):
+    _tags(monkeypatch, ["gemma3:latest"])
+    assert cleanup.probe({**CFG, "cleanup_model": "gemma3"})[0] == "ready"
+
+
+def test_a_silent_ollama_is_down_and_lists_nothing(monkeypatch):
+    """"Down" and "no models installed" must not look alike: an empty list from a
+    server that never answered would let the settings page offer an empty
+    dropdown as if it were the truth about this PC."""
+    _tags(monkeypatch, None)
+    assert cleanup.probe(CFG) == ("down", [])
