@@ -45,6 +45,7 @@ DEFAULTS = {
     "silence_rms": 0.0015,         # skip near-silent clips (threshold proven in a sibling project)
     "history_cap": 200,
     "meeting_treatment": "ai",     # ai = transcript + summary, fast = transcript only
+    "meeting_source": "both",      # both = mic + system audio, mic = microphone only
 }
 
 

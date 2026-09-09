@@ -104,11 +104,19 @@ def folder(meeting_id: str):
     return config.DATA_DIR / "meetings" / meeting_id
 
 
+# Sources: "record" = mic + system audio, the only one with two speakers;
+# "mic" = microphone only; "import" = one decoded file. LABELLED is the set whose
+# segments carry a real Me/Them split - the other two put everything on channel
+# "me", so calling that "Me" would hand one speaker the whole room.
+RECORDED = ("record", "mic")
+LABELLED = ("record",)
+
+
 def create(source: str) -> str:
     mid = uuid.uuid4().hex[:12]
     now = datetime.now().astimezone()
     title = now.strftime("Meeting - %a %d %b, %H:%M")
-    status = "recording" if source == "record" else "transcribing"
+    status = "recording" if source in RECORDED else "transcribing"
     with _session() as con:
         con.execute("INSERT INTO meetings(id, created_iso, title, source, status)"
                     " VALUES(?,?,?,?,?)",

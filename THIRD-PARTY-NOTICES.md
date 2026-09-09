@@ -17,7 +17,9 @@ Not bundled: it is downloaded on first run to `%LOCALAPPDATA%\Hemsa\models\`.
 
 - **sounddevice** (Matthias Geier) - MIT, with **PortAudio** - MIT.
 - **PyAudioWPatch** (s0d3s) - **Apache-2.0**, a patched PyAudio adding WASAPI
-  loopback capture. Used for the "them" channel of a meeting recording.
+  loopback capture. Used for both channels of a meeting recording - the "them"
+  channel needs the loopback patch, and the microphone goes through the same
+  library. Dictation does not use it.
 
 ## Media import (meetings) - NOT in the installer
 

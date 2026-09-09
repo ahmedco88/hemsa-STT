@@ -11,7 +11,7 @@
 ;     inconsistent with it anyway
 
 #define AppName "Hemsa"
-#define AppVersion "0.5.7"
+#define AppVersion "0.5.8"
 #define AppPublisher "Ahmed Al-Obaidi"
 #define AppURL "https://github.com/ahmedco88/hemsa-STT"
 

@@ -1,7 +1,8 @@
 """Meeting capture: mic ("me") + WASAPI loopback of the default speakers ("them"),
-both written incrementally to 16 kHz mono WAV - an hour of audio must never live in
-RAM. Loopback may deliver NOTHING while the system is silent (spike, 2026-09-02), so
-each writer pads with zeros against a shared wall clock; sample count is never a
+both written incrementally to 16 kHz mono WAV - an hour of audio must never live
+in RAM. Config meeting_source "mic" drops the loopback half and records the
+microphone alone. Loopback may deliver NOTHING while the system is silent
+(spike, 2026-09-02), so each writer pads with zeros against a shared wall clock; sample count is never a
 clock. Uses PyAudioWPatch ONLY here - dictation's sounddevice path is untouched.
 """
 
@@ -67,6 +68,11 @@ class MeetingRecorder:
     def __init__(self, cfg: dict, dest: Path):
         self._cfg = cfg
         self._dest = dest
+        # "mic" records the microphone ONLY: no loopback device is looked up and
+        # no them.wav is written, so a PC with no loopback twin can still record,
+        # and an in-person conversation is not filed under a channel nobody spoke
+        # on. Read once at construction - the setting must not change mid-meeting.
+        self._mic_only = cfg.get("meeting_source", "both") == "mic"
         self._pa = None
         self._mic = self._loop = None
         self._me_w = self._them_w = None
@@ -91,25 +97,9 @@ class MeetingRecorder:
         try:
             self._dest.mkdir(parents=True, exist_ok=True)
             self._me_w = PaddedWavWriter(self._dest / "me.wav")
-            self._them_w = PaddedWavWriter(self._dest / "them.wav")
             self._pa = pyaudio.PyAudio()
-            loop_info = self._find_loopback(pyaudio)
-            self._loop_rate = int(loop_info["defaultSampleRate"])
-            self._loop_ch = max(1, loop_info["maxInputChannels"])
-            self._loop_fmt = pyaudio.paFloat32
-            try:
-                self._loop = self._pa.open(
-                    format=pyaudio.paFloat32, channels=self._loop_ch, rate=self._loop_rate,
-                    frames_per_buffer=2048, input=True,
-                    input_device_index=loop_info["index"],
-                    stream_callback=self._loop_cb)
-            except OSError:
-                self._loop_fmt = pyaudio.paInt16
-                self._loop = self._pa.open(
-                    format=pyaudio.paInt16, channels=self._loop_ch, rate=self._loop_rate,
-                    frames_per_buffer=2048, input=True,
-                    input_device_index=loop_info["index"],
-                    stream_callback=self._loop_cb)
+            if not self._mic_only:
+                self._open_loopback(pyaudio)
             mic_index = self._find_mic(pyaudio)
             self._mic_rate = 16000
             self._mic_fmt = pyaudio.paFloat32
@@ -140,6 +130,26 @@ class MeetingRecorder:
             self._teardown()
             raise
 
+    def _open_loopback(self, pyaudio) -> None:
+        loop_info = self._find_loopback(pyaudio)      # before the writer: a missing
+        self._them_w = PaddedWavWriter(self._dest / "them.wav")   # device leaves no
+        self._loop_rate = int(loop_info["defaultSampleRate"])     # empty them.wav
+        self._loop_ch = max(1, loop_info["maxInputChannels"])
+        self._loop_fmt = pyaudio.paFloat32
+        try:
+            self._loop = self._pa.open(
+                format=pyaudio.paFloat32, channels=self._loop_ch, rate=self._loop_rate,
+                frames_per_buffer=2048, input=True,
+                input_device_index=loop_info["index"],
+                stream_callback=self._loop_cb)
+        except OSError:
+            self._loop_fmt = pyaudio.paInt16
+            self._loop = self._pa.open(
+                format=pyaudio.paInt16, channels=self._loop_ch, rate=self._loop_rate,
+                frames_per_buffer=2048, input=True,
+                input_device_index=loop_info["index"],
+                stream_callback=self._loop_cb)
+
     def _find_loopback(self, pyaudio):
         api = self._pa.get_host_api_info_by_type(pyaudio.paWASAPI)
         speakers = self._pa.get_device_info_by_index(api["defaultOutputDevice"])
@@ -148,7 +158,8 @@ class MeetingRecorder:
         for lb in self._pa.get_loopback_device_info_generator():
             if speakers["name"] in lb["name"]:
                 return lb
-        raise RuntimeError("no loopback twin for the default speakers")
+        raise RuntimeError("no loopback twin for the default speakers - switch "
+                           "the source to Microphone only to record anyway")
 
     def _find_mic(self, pyaudio):
         want = self._cfg.get("mic_device")

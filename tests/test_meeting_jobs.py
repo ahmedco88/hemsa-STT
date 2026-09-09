@@ -39,7 +39,7 @@ def test_import_pipeline_reaches_done(env, monkeypatch, tmp_path):
                         lambda path, ch, eng, words, wait_idle, on_progress=None:
                         [{"start": 0.0, "end": 4.0, "channel": ch, "text": "hi"}])
     monkeypatch.setattr(meeting_jobs.summarize, "summarize",
-                        lambda segs, cfg: ("- talked", "- none"))
+                        lambda segs, cfg, labelled=True: ("- talked", "- none"))
     changes = []
     jobs = meeting_jobs.MeetingJobs({"meeting_treatment": "ai"}, FakeEngine(),
                                     FakeController(), on_change=changes.append)
@@ -62,7 +62,7 @@ def test_summary_failure_is_done_with_retry_state(env, monkeypatch, tmp_path):
     monkeypatch.setattr(meeting_jobs.longform, "transcribe_wav",
                         lambda *a, **k: [{"start": 0, "end": 1,
                                           "channel": "me", "text": "hi"}])
-    monkeypatch.setattr(meeting_jobs.summarize, "summarize", lambda s, c: None)
+    monkeypatch.setattr(meeting_jobs.summarize, "summarize", lambda s, c, labelled=True: None)
     jobs = meeting_jobs.MeetingJobs({"meeting_treatment": "ai"}, FakeEngine(),
                                     FakeController(), on_change=lambda mid: None)
     src = tmp_path / "x.mp3"
@@ -81,7 +81,7 @@ def test_an_empty_recording_never_calls_the_summariser(env, monkeypatch):
     calls = []
     monkeypatch.setattr(meeting_jobs.dictionary, "load", lambda: [])
     monkeypatch.setattr(meeting_jobs.summarize, "summarize",
-                        lambda segs, cfg: calls.append(segs))
+                        lambda segs, cfg, labelled=True: calls.append(segs))
     jobs = meeting_jobs.MeetingJobs({"meeting_treatment": "ai"}, FakeEngine(),
                                     FakeController(), on_change=lambda mid: None)
     mid = meetings.create("record")              # no audio was ever written
@@ -152,7 +152,7 @@ def test_a_capture_abort_ends_in_error_with_the_audio_kept(env, monkeypatch):
                         [{"start": 0.0, "end": 1.0, "channel": ch,
                           "text": "half a call"}])
     monkeypatch.setattr(meeting_jobs.summarize, "summarize",
-                        lambda segs, cfg: ("- half", "- none"))
+                        lambda segs, cfg, labelled=True: ("- half", "- none"))
     jobs = meeting_jobs.MeetingJobs({"meeting_treatment": "ai"}, FakeEngine(),
                                     FakeController(), on_change=lambda mid: None)
     mid = jobs.start_recording()
@@ -176,7 +176,7 @@ def test_a_clean_stop_still_reaches_done(env, monkeypatch):
     monkeypatch.setattr(meeting_jobs.longform, "transcribe_wav",
                         lambda *a, **k: [{"start": 0.0, "end": 1.0,
                                           "channel": "me", "text": "all of it"}])
-    monkeypatch.setattr(meeting_jobs.summarize, "summarize", lambda s, c: None)
+    monkeypatch.setattr(meeting_jobs.summarize, "summarize", lambda s, c, labelled=True: None)
     jobs = meeting_jobs.MeetingJobs({"meeting_treatment": "ai"}, FakeEngine(),
                                     FakeController(), on_change=lambda mid: None)
     mid = jobs.start_recording()
@@ -184,3 +184,59 @@ def test_a_clean_stop_still_reaches_done(env, monkeypatch):
 
     assert wait_done(meetings, mid) == "done"
     assert meetings.get(mid)["error"] == ""
+
+
+def test_mic_only_stamps_the_source_and_drops_the_speaker_labels(env, monkeypatch):
+    """The source is stamped on the meeting at start, and a mic-only meeting has
+    no Me/Them split: every segment is on channel "me", so labelling it "Me:"
+    would hand one speaker the whole room - in the transcript AND in the text
+    the summariser reads."""
+    meetings = env
+    from hemsa import meeting_jobs
+    from hemsa.ui.meetings_win import transcript_text
+
+    class FakeRecorder:
+        error = None
+
+        def __init__(self, cfg, dest):
+            self.dest = dest
+
+        def start(self): pass
+        def stop(self): return 3.0
+
+    monkeypatch.setattr(meeting_jobs.meeting_audio, "MeetingRecorder", FakeRecorder)
+    monkeypatch.setattr(meeting_jobs.dictionary, "load", lambda: [])
+    monkeypatch.setattr(meeting_jobs.longform, "transcribe_wav",
+                        lambda *a, **k: [])
+    seen = {}
+
+    def _summarize(segs, cfg, labelled=True):
+        seen["labelled"] = labelled
+        return ("- talked", "- none")
+
+    monkeypatch.setattr(meeting_jobs.summarize, "summarize", _summarize)
+
+    jobs = meeting_jobs.MeetingJobs({"meeting_treatment": "ai",
+                                     "meeting_source": "mic"},
+                                    FakeEngine(), FakeController(),
+                                    on_change=lambda mid: None)
+    mid = jobs.start_recording()
+    assert meetings.get(mid)["source"] == "mic"
+    assert meetings.get(mid)["status"] == "recording"   # not "transcribing"
+    jobs.stop_recording()
+    assert wait_done(meetings, mid) == "done"
+
+    # nothing was captured by the fake, so give it a transcript and run the
+    # summary leg on its own - that is the call whose labelling matters
+    meetings.save_segments(mid, [{"start": 0.0, "end": 2.0, "channel": "me",
+                                  "text": "how are you"}])
+    jobs.retry_summary(mid)
+    assert wait_done(meetings, mid) == "done"
+    assert seen["labelled"] is False
+
+    m = dict(meetings.get(mid))
+    assert "Me:" not in transcript_text(m)
+    assert "how are you" in transcript_text(m)
+
+    m["source"] = "record"
+    assert "Me:" in transcript_text(m)

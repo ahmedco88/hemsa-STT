@@ -38,7 +38,11 @@ class MeetingJobs:
 
     # ---- public API (UI thread) ----
     def start_recording(self) -> str:
-        mid = meetings.create("record")
+        # The source is stamped on the MEETING, not read from the config later:
+        # the config can change before this recording is transcribed, and a
+        # mic-only meeting must never be read back as a two-speaker one.
+        source = "mic" if self.cfg.get("meeting_source", "both") == "mic" else "record"
+        mid = meetings.create(source)
         rec = meeting_audio.MeetingRecorder(self.cfg, meetings.folder(mid))
         try:
             rec.start()
@@ -161,7 +165,9 @@ class MeetingJobs:
             meetings.set_status(mid, "summarising")
             self.progress = (0, 0)
             self.on_change(mid)
-            result = summarize.summarize(m["segments"], self.cfg)
+            result = summarize.summarize(
+                m["segments"], self.cfg,
+                labelled=m["source"] in meetings.LABELLED)
             if result is not None:
                 meetings.save_summary(mid, *result)
         # Everything that could be salvaged has been: transcript and summary are

@@ -39,17 +39,20 @@ PAD = 40                 # logical px, through px() at use time
 # Statuses where the worker still owns the meeting's folder and rows.
 BUSY_STATUSES = ("recording", "transcribing", "summarising")
 
-SUBTITLE = "Your mic and the other side, transcribed on this PC."
-# Not etiquette. Hemsa captures the OTHER side of the call through WASAPI
-# loopback, and in several Australian states recording a private conversation
-# without every party's consent is an offence, whether or not you are in it.
-# "Remember to tell them" reads as optional, and telling is not consent.
+SUBTITLE = "Your mic, and the other side if you want it. Transcribed on this PC."
+# Not etiquette. Hemsa records silently, and in several Australian states
+# recording a private conversation without every party's consent is an offence,
+# whether or not you are in it. "Remember to tell them" reads as optional, and
+# telling is not consent. Deliberately source-agnostic: a microphone in a room
+# picks up people who never joined the conversation, so this must not read as a
+# loopback-only concern.
 COURTESY = "Recording is silent - get everyone's consent before you record."
 EMPTY = "No meetings yet. Press Record, or import a file."
 # Recording and transcription are self-contained; only the SUMMARY needs Ollama.
 # Saying that in the warning matters - otherwise it reads as "do not record".
 OLLAMA_DOWN = ("Ollama is not running, so meetings will be transcribed but not "
-               "summarised. Start Ollama, or switch to Transcript only in Settings.")
+               "summarised. Start Ollama, or switch to Transcript only in the "
+               "dropdown above.")
 OLLAMA_NO_MODEL = ("Ollama is running but {model} is not pulled, so meetings will "
                    "be transcribed but not summarised. Run: ollama pull {model}")
 # Cold start here is 1-3 s. Ten tries at 1.2 s gives it 12 s before we stop
@@ -60,6 +63,13 @@ OLLAMA_WAIT_MS = 1200
 # config value -> the words a human reads in the dropdown
 TREATMENTS = (("ai", "Transcript + summary"), ("fast", "Transcript only"))
 TREATMENT_LABELS = dict(TREATMENTS)
+
+# "Microphone only" skips WASAPI loopback entirely: for a conversation in the
+# room, a speakerphone, or a PC whose default speakers have no loopback twin.
+# It is also the only mode that works there at all - a missing twin used to
+# abort the whole recording.
+SOURCES = (("both", "Mic + system audio"), ("mic", "Microphone only"))
+SOURCE_LABELS = dict(SOURCES)
 
 AUDIO_TYPES = [
     ("Audio/video", "*.m4a *.mp4 *.mp3 *.wav *.flac *.ogg *.opus *.webm"),
@@ -83,10 +93,10 @@ def _minutes(seconds) -> str:
 
 
 def transcript_text(meeting: dict) -> str:
-    """The transcript as it is shown and copied. Imports have no Me/Them split
-    (one decoded file, every segment on one channel), so the speaker label is
-    dropped entirely rather than labelling everything "Me"."""
-    labelled = meeting.get("source") != "import"
+    """The transcript as it is shown and copied. An import (one decoded file) and
+    a mic-only recording have no Me/Them split - every segment is on channel "me"
+    - so the speaker label is dropped rather than labelling everything "Me"."""
+    labelled = meeting.get("source") in meetings.LABELLED
     lines = []
     for seg in meeting.get("segments", []):
         who = "Me" if seg.get("channel") == "me" else "Them"
@@ -251,12 +261,16 @@ class MeetingsFrame(tk.Frame):
         self._dot.pack(side="left", padx=(0, px(8)))
         self._paper.append((self._dot, None))
 
-        self._chips = []
-        for text in ("Microphone", "System audio"):
-            chip = tk.Label(consent, text=text, font=theme.F.small,
-                            padx=px(9), pady=px(2))
-            chip.pack(side="left", padx=(0, px(6)))
-            self._chips.append(chip)
+        # Sits where the "Microphone"/"System audio" chips used to: one place
+        # says what is being captured, and it is the control that sets it.
+        current_src = self._app.cfg.get("meeting_source", "both")
+        self._source = tk.StringVar(
+            value=SOURCE_LABELS.get(current_src, SOURCE_LABELS["both"]))
+        self._source_box = ttk.Combobox(
+            consent, textvariable=self._source, state="readonly", width=18,
+            style="Hemsa.TCombobox", values=[label for _, label in SOURCES])
+        self._source_box.pack(side="left", padx=(0, px(6)))
+        self._source_box.bind("<<ComboboxSelected>>", lambda e: self._save_source())
 
         self._note = tk.Label(consent, text=COURTESY, font=theme.F.small, anchor="w")
         self._note.pack(side="left", padx=(px(6), 0))
@@ -280,6 +294,13 @@ class MeetingsFrame(tk.Frame):
                                    command=self._on_recheck)
         self._recheck.pack(side="left", padx=(px(8), 0))
         self._widgets += [self._start_ollama, self._recheck]
+
+    def _save_source(self) -> None:
+        for key, label in SOURCES:
+            if label == self._source.get():
+                self._app.cfg["meeting_source"] = key
+                config.save(self._app.cfg)
+                return
 
     def _save_treatment(self) -> None:
         for key, label in TREATMENTS:
@@ -583,7 +604,7 @@ class MeetingsFrame(tk.Frame):
             body.append((why or "No summary for this meeting.\n", "muted"))
         self._write(self._summary, body or [("", None)])
 
-        labelled = m["source"] != "import"
+        labelled = m["source"] in meetings.LABELLED
         lines = []
         for seg in m["segments"]:
             who = "Me" if seg["channel"] == "me" else "Them"
@@ -720,6 +741,9 @@ class MeetingsFrame(tk.Frame):
         recording = bool(jobs is not None and jobs.recording_id)
         self._rec.set_kind("stop" if recording else "primary")
         self._rec.configure_text("Stop" if recording else "Record")
+        # MeetingRecorder read the source once, at start(). Changing it mid-call
+        # would change the label without changing what is being captured.
+        self._source_box.configure(state="disabled" if recording else "readonly")
         self._empty.configure(text=EMPTY)
         self._build_rows()
         if self._open_id is not None:
@@ -745,8 +769,6 @@ class MeetingsFrame(tk.Frame):
             w.configure(bg=P.CARD)
             if fg:
                 w.configure(fg=getattr(P, fg))
-        for chip in self._chips:
-            chip.configure(bg=P.MIST, fg=P.DEEP)
         for w in self._widgets:
             w.restyle()
         for box in (self._summary, self._transcript):

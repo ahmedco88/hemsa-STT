@@ -52,7 +52,9 @@ cursor. Click it to dictate, right-click it for the last transcript and the rest
 ![The orb over Notepad after a dictation, with the text at the cursor](docs/screenshots/orb.png)
 
 A finished meeting, summary and actions on the left, the labelled transcript on the
-right. **Me** is your microphone and **Them** is everything else on the call.
+right. On a two-channel recording, **Me** is your microphone and **Them** is
+everything else on the call. A microphone-only recording is not split that way -
+see below.
 
 ![A finished meeting in Hemsa: summary and actions beside the labelled transcript](docs/screenshots/meetings.png)
 
@@ -71,6 +73,12 @@ Hemsa can also record a meeting and write it up afterwards. It captures two
 channels: your microphone, and whatever is coming out of your speakers, so both
 sides of a call are transcribed and labelled.
 
+The dropdown beside the recording dot switches that to **Microphone only** - for a
+conversation in the room, a phone on speaker, or a PC whose speakers have no
+loopback device. A mic-only recording has no second channel, so its transcript is
+not split into Me and Them: everything reached the one microphone, and labelling
+all of it "Me" would put the other person's words in your mouth.
+
 Like dictation, all of it happens on your PC. Nothing is uploaded.
 
 **Importing a file you already have** (`.m4a`, `.mp4`, `.mp3`) works only when you
@@ -81,10 +89,13 @@ Hemsa is MIT. Recording, transcription and summaries need none of it. Details in
 
 **Two things to be clear about before you use it.**
 
-- **Consent is your responsibility.** Hemsa records the other party silently, and
-  they have no way of knowing. In several Australian states, and in many other
-  places, recording a private conversation without every party's consent is an
-  offence, whether or not you are part of that conversation. Get consent first.
+- **Consent is your responsibility.** Hemsa records silently, and nobody around
+  you has any way of knowing. Microphone-only mode makes that easy to forget: a
+  microphone in a room records **everyone within earshot**, including people who
+  never joined the conversation and were never asked. In several Australian
+  states, and in many other places, recording a private conversation without
+  every party's consent is an offence, whether or not you are part of that
+  conversation. Get consent first, from everyone who can be heard.
 - **The summary is machine-generated and unverified.** The transcript comes from a
   speech model and the summary and action list come from a small local language
   model. Both make mistakes: mishearings, missed points, and statements that are
@@ -200,7 +211,9 @@ a medical question means inventing a dose.
   exact pass fixes spelling and case, then a local fuzzy pass (difflib, about 0.3 ms,
   no AI) catches the near-misses. It is built to refuse: an entry for "Claude" will
   not touch the ordinary word "cloud".
-- **Meetings:** system audio is captured with WASAPI loopback (PyAudioWPatch),
+- **Meetings:** system audio is captured with WASAPI loopback (PyAudioWPatch)
+  unless the source is set to microphone only, in which case no loopback device is
+  opened at all;
   long recordings are cut on silence into chunks before transcription, and the
   summary uses the same local `qwen3.5:2b` as cleanup. Imported files are decoded
   with PyAV. Meetings are stored in `%LOCALAPPDATA%\Hemsa\`, like everything else.

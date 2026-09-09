@@ -104,8 +104,10 @@ def test_start_tears_down_and_reraises_on_setup_failure(tmp_path, monkeypatch):
     assert rec.error is not None and "no loopback" in rec.error
     with wave.open(str(tmp_path / "me.wav")):
         pass
-    with wave.open(str(tmp_path / "them.wav")):
-        pass
+    # No them.wav at all: the loopback writer is only opened once the device
+    # has been found. An empty one transcribes as a silent other party rather
+    # than as an absent one.
+    assert not (tmp_path / "them.wav").exists()
 
     rec.stop()   # a caller's cleanup stop() after a failed start() must not raise,
     assert fake_pa.terminate_calls == 1   # and must not terminate a second time
@@ -129,3 +131,39 @@ def test_an_aborted_channel_is_not_padded_to_the_stop_time(tmp_path):
 
     with wave.open(str(tmp_path / "me.wav")) as f:
         assert abs(f.getnframes() / 16000 - 1.0) < 0.05      # kept, not padded
+
+
+def test_mic_only_never_looks_for_a_loopback_device(tmp_path, monkeypatch):
+    """meeting_source "mic" must not touch WASAPI loopback at all: that is the
+    whole point of the mode on a PC whose speakers have no loopback twin."""
+    opened = []
+
+    class FakeStream:
+        def stop_stream(self): pass
+        def close(self): pass
+
+    class FakePA:
+        def open(self, **kw):
+            opened.append(kw)
+            return FakeStream()
+
+        def get_device_count(self):
+            return 0
+
+        def terminate(self): pass
+
+    monkeypatch.setattr(pyaudio, "PyAudio", lambda: FakePA())
+
+    def _boom(self, pa_module):
+        raise AssertionError("_find_loopback must not be called in mic-only mode")
+
+    monkeypatch.setattr(MeetingRecorder, "_find_loopback", _boom)
+
+    rec = MeetingRecorder(cfg={"meeting_source": "mic"}, dest=tmp_path)
+    rec.start()
+    rec.stop()
+
+    assert len(opened) == 1                       # the mic stream, and only it
+    with wave.open(str(tmp_path / "me.wav")):
+        pass
+    assert not (tmp_path / "them.wav").exists()

@@ -100,25 +100,31 @@ _ADVICE_PHRASES = ("once daily", "twice daily", "three times", "starting dose",
                     "per week")
 
 
-def render(segments) -> str:
+def render(segments, labelled: bool = True) -> str:
+    """labelled=False for a meeting with no real Me/Them split (an import, or
+    a mic-only recording): every segment is on channel "me" there, so a "Me:"
+    on each line tells the model one person said everything, including the
+    other party's words. Same class of falsehood as the owner bug, and nothing
+    downstream inspects attribution."""
     lines = []
     for s in segments:
         m, sec = divmod(int(s["start"]), 60)
         who = "Me" if s["channel"] == "me" else "Them"
-        lines.append(f"[{m:02d}:{sec:02d}] {who}: {s['text']}")
+        head = f"[{m:02d}:{sec:02d}] {who}: " if labelled else f"[{m:02d}:{sec:02d}] "
+        lines.append(head + s["text"])
     return "\n".join(lines)
 
 
-def split_pieces(segments, max_words: int = 1500):
+def split_pieces(segments, max_words: int = 1500, labelled: bool = True):
     pieces, cur, count = [], [], 0
     for s in segments:
         cur.append(s)
         count += len(s["text"].split())
         if count >= max_words:
-            pieces.append(render(cur))
+            pieces.append(render(cur, labelled))
             cur, count = [], 0
     if cur:
-        pieces.append(render(cur))
+        pieces.append(render(cur, labelled))
     return pieces
 
 
@@ -361,10 +367,11 @@ def _ask_list(prompt: str, material: str, cfg, key: str) -> str | None:
     return bullets
 
 
-def summarize(segments, cfg) -> tuple[str, str] | None:
-    """(summary_bullets, action_bullets) or None. Never raises."""
-    transcript = render(segments)
-    pieces = split_pieces(segments)
+def summarize(segments, cfg, labelled: bool = True) -> tuple[str, str] | None:
+    """(summary_bullets, action_bullets) or None. Never raises.
+    labelled=False when the transcript has no Me/Them split - see render()."""
+    transcript = render(segments, labelled)
+    pieces = split_pieces(segments, labelled=labelled)
     if len(pieces) > 1:
         notes = []
         for p in pieces:

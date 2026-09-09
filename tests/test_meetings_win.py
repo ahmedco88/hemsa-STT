@@ -293,3 +293,20 @@ def test_switching_to_transcript_only_clears_a_stale_ollama_warning(frame):
 
     assert frame._msg.cget("text") == ""
     assert not frame._fix.winfo_manager()
+
+
+def test_source_picker_saves_and_locks_while_recording(frame, store):
+    """The picker writes the config, and is locked mid-recording: MeetingRecorder
+    read the source once at start(), so changing it live would change the label
+    without changing what is actually being captured."""
+    from hemsa.ui import meetings_win
+
+    frame._source.set(meetings_win.SOURCE_LABELS["mic"])
+    frame._save_source()
+    assert frame._app.cfg["meeting_source"] == "mic"
+
+    frame.refresh()
+    assert str(frame._source_box.cget("state")) == "readonly"
+    frame._app.jobs.recording_id = "abc123"
+    frame.refresh()
+    assert str(frame._source_box.cget("state")) == "disabled"
