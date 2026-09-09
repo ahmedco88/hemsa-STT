@@ -87,7 +87,7 @@ purpose: the ffmpeg build that PyAV ships includes GPL-licensed encoders, and
 Hemsa is MIT. Recording, transcription and summaries need none of it. Details in
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
-**Two things to be clear about before you use it.**
+**Three things to be clear about before you use it.**
 
 - **Consent is your responsibility.** Hemsa records silently, and nobody around
   you has any way of knowing. Microphone-only mode makes that easy to forget: a
@@ -96,6 +96,17 @@ Hemsa is MIT. Recording, transcription and summaries need none of it. Details in
   states, and in many other places, recording a private conversation without
   every party's consent is an offence, whether or not you are part of that
   conversation. Get consent first, from everyone who can be heard.
+- **A recorded consultation is a health record, and Hemsa is not a records
+  system.** From the moment you press Record, the audio, the transcript and the
+  summary are health information about an identified patient, and that is true
+  whether or not the summary turns out to be any good. Hemsa stores all three
+  **unencrypted** in `%LOCALAPPDATA%\Hemsa\`, on whatever PC you recorded on,
+  behind nothing but your Windows login. Meetings are kept until you delete them
+  by hand: there is no retention period, no audit trail, and no way to export or
+  produce a recording in response to a patient request. Whether to record a
+  consultation at all, what you tell the patient, how long you keep it, and how
+  it relates to the record in your clinical software are decisions for you and
+  your practice. Hemsa makes none of them and supports none of them.
 - **The summary is machine-generated and unverified.** The transcript comes from a
   speech model and the summary and action list come from a small local language
   model. Both make mistakes: mishearings, missed points, and statements that are
