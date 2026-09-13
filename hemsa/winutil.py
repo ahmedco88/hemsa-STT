@@ -10,6 +10,7 @@ from pathlib import Path
 GWL_EXSTYLE = -20
 WS_EX_NOACTIVATE = 0x08000000
 WS_EX_TOOLWINDOW = 0x00000080
+WS_EX_TOPMOST = 0x00000008
 
 
 def set_noactivate(win) -> None:
@@ -57,6 +58,26 @@ def is_window_visible(win) -> bool:
         return bool(ctypes.windll.user32.IsWindowVisible(_top_level_hwnd(win)))
     except Exception:
         return True                     # unknown: never hide something on a guess
+
+
+def ensure_topmost(win) -> bool:
+    """Put the window back in the always-on-top band if Windows took it out.
+    Returns True when it had to. An ordinary window can only cover the orb once
+    WS_EX_TOPMOST is gone, and Tk is never told when that happens (a visible
+    window with the flag cleared looks "normal" to both Tk and IsWindowVisible).
+    SWP_NOACTIVATE so re-pinning never steals focus from the text field."""
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = _top_level_hwnd(win)
+        if user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST:
+            return False
+        # HWND_TOPMOST = -1, as a pointer: a bare -1 goes over as a 32-bit int
+        # on 64-bit Python and Windows rejects it (ERROR_INVALID_WINDOW_HANDLE).
+        # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
+        return bool(user32.SetWindowPos(hwnd, ctypes.c_void_p(-1), 0, 0, 0, 0,
+                                        0x0001 | 0x0002 | 0x0010))
+    except Exception:
+        return False
 
 
 def virtual_bounds() -> tuple[int, int, int, int]:

@@ -170,7 +170,12 @@ class Orb:
           saved coordinates pointing off the edge of the world. Re-showing would
           NOT have fixed that one; only moving it back does.
 
-        Both checks are a couple of syscalls, so a plain timer is enough - there
+        * The window is shown but no longer on top ("it hides behind windows").
+          Windows can clear WS_EX_TOPMOST on a visible window, IsWindowVisible
+          still says yes, and ordinary windows then cover it.
+          winutil.ensure_topmost puts it back.
+
+        All checks are a couple of syscalls, so a plain timer is enough - there
         is no reliable Tk event for either.
         """
         log = logging.getLogger("hemsa.orb")
@@ -182,6 +187,8 @@ class Orb:
                     self.win.attributes("-topmost", True)
                     winutil.set_noactivate(self.win)
                     self._draw()
+                elif winutil.ensure_topmost(self.win):
+                    log.info("orb had lost always-on-top - pinned it again")
                 x, y = self.win.winfo_x(), self.win.winfo_y()
                 if not winutil.on_screen(x, y, self.size, self.size):
                     nx, ny = winutil.snap_to_edge(x, y, self.size, self.size)

@@ -39,6 +39,29 @@ def test_negative_coordinates_from_a_removed_left_monitor(desktop):
     assert not winutil.on_screen(-1800, 300, SIZE, SIZE)
 
 
+def test_ensure_topmost_repins_a_window_windows_demoted(clean_root):
+    """The "orb hides behind windows" bug: the window stays visible but loses
+    WS_EX_TOPMOST, so only a check on the flag itself can see it."""
+    import ctypes
+    import tkinter as tk
+    win = tk.Toplevel(clean_root)
+    win.overrideredirect(True)
+    win.attributes("-topmost", True)
+    win.geometry("20x20+10+10")
+    win.update()
+    user32 = ctypes.windll.user32
+    hwnd = winutil._top_level_hwnd(win)
+    is_top = lambda: bool(user32.GetWindowLongW(hwnd, winutil.GWL_EXSTYLE)
+                          & winutil.WS_EX_TOPMOST)
+    assert is_top() and not winutil.ensure_topmost(win)
+    user32.SetWindowPos(hwnd, ctypes.c_void_p(-2), 0, 0, 0, 0,          # HWND_NOTOPMOST
+                        0x0001 | 0x0002 | 0x0010)
+    assert not is_top()
+    assert winutil.ensure_topmost(win)
+    assert is_top()
+    win.destroy()
+
+
 def test_snap_to_edge_always_lands_inside_the_work_area(monkeypatch):
     monkeypatch.setattr(winutil, "work_area", lambda: (0, 0, 1920, 1040))
     monkeypatch.setattr(winutil, "virtual_bounds", lambda: (0, 0, 1920, 1080))
