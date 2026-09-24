@@ -148,6 +148,16 @@ def test_cleanup_mode_migrates_from_the_old_bool(cfg_path):
     assert config.load()["cleanup_mode"] == "off"
 
 
+def test_old_localhost_default_moves_to_ipv4_but_a_custom_url_stays(cfg_path):
+    """localhost cost a 1 s freeze per Ollama check on Windows. Only the old
+    default is rewritten; a URL the user chose is left alone."""
+    cfg_path.write_text('{"ollama_url": "http://localhost:11434"}', encoding="utf-8")
+    assert config.load()["ollama_url"] == "http://127.0.0.1:11434"
+
+    cfg_path.write_text('{"ollama_url": "http://gpu-box:11434"}', encoding="utf-8")
+    assert config.load()["ollama_url"] == "http://gpu-box:11434"
+
+
 def test_explicit_cleanup_mode_wins_over_the_legacy_bool(cfg_path):
     cfg_path.write_text('{"cleanup": true, "cleanup_mode": "fast"}', encoding="utf-8")
     assert config.load()["cleanup_mode"] == "fast"

@@ -107,6 +107,7 @@ class HomePage(tk.Frame):
         super().__init__(parent)
         self._app = app
         self._items: list[dict] = []
+        self._built_for = None          # (items, date) the rows were last drawn from
         self._hidden_at = 0.0
         self._texts: list[tk.Label] = []
         self._paper: list[tuple[tk.Widget, str | None]] = []    # (widget, fg slot)
@@ -234,7 +235,7 @@ class HomePage(tk.Frame):
     def on_hide(self) -> None:
         self._hidden_at = time.monotonic()
 
-    def _refresh(self, animate: bool) -> None:
+    def _refresh(self, animate: bool, rebuild: bool = False) -> None:
         self.greet.configure(text=greeting(datetime.now().hour))
         s = stats.summary()
         days = stats.last_days(7)
@@ -255,8 +256,15 @@ class HomePage(tk.Frame):
         self.dots.set(active)
         self.saved_sub.configure(text=f"{sum(active)} of the last 7 days")
 
-        self._items = history.load()
-        self._build_rows()
+        # Rebuilding every row costs ~0.6 s at 60 entries (2026-09-25), and it ran
+        # on EVERY visit to Home. The rows depend only on the entries and on
+        # today's date (the Today / Yesterday labels), so redraw only when one moved.
+        items = history.load()
+        built_for = (items, datetime.now().date())
+        if rebuild or built_for != self._built_for:
+            self._items = items
+            self._build_rows()
+            self._built_for = built_for
         self._say(f"Kept for {history.KEEP_HOURS} hours - star one to keep it. "
                   "Stored only on this PC.")
 
@@ -421,4 +429,4 @@ class HomePage(tk.Frame):
             w.restyle()
         self._draw_bar()
         # rows carry their colours from build time, so rebuild them
-        self._refresh(animate=False)
+        self._refresh(animate=False, rebuild=True)

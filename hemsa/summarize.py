@@ -65,7 +65,12 @@ MAP_PROMPT = (
     "SAID. Only report statements made by the speakers. If a question was asked, "
     "note that it was asked - never answer it yourself. Record what was said, "
     "never who owes whom a task. No new facts, no advice, "
-    "no numbers that are not in the text. Return only '- ' bullets.")
+    # The cap is load-bearing (2026-09-25): without it qwen3.5:2b copied a
+    # 1500-word piece back almost verbatim, hit num_predict, and one truncated
+    # piece failed the whole summary of an 18-minute meeting on every retry.
+    "no numbers that are not in the text. At most 8 bullets, each one short "
+    "sentence in your own words - never copy the transcript line by line. "
+    "Return only '- ' bullets.")
 SUMMARY_PROMPT = (
     "Summarise what was discussed in these meeting notes. Return JSON: "
     '{"summary": ["...", "..."]} and nothing else. At most 8 short strings, '
@@ -325,7 +330,10 @@ def _chat(prompt_and_text, cfg):
             "messages": [{"role": "system", "content": system},
                          {"role": "user", "content": text}],
             "stream": False, "think": False, "keep_alive": "30m",
-            "options": {"temperature": 0, "num_predict": 1024}}
+            # num_ctx explicit: Ollama's default (4096) silently drops the START
+            # of a longer input, which is the system prompt. A long meeting's
+            # reduce reply measured 958 tokens, so 1024 was one bad day from failing.
+            "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 2048}}
     if fmt:
         body["format"] = fmt
     r = requests.post(f"{cfg['ollama_url']}/api/chat", json=body,

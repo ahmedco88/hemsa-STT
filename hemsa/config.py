@@ -39,7 +39,7 @@ DEFAULTS = {
     "show_orb": True,
     "orb_pos": None,               # [x, y]; None = bottom-right default
     "cleanup_mode": "off",         # off | fast | ai - see CLEANUP_MODES
-    "ollama_url": "http://localhost:11434",
+    "ollama_url": "http://127.0.0.1:11434",   # not localhost - see _migrate
     "cleanup_model": "qwen3.5:2b",
     "models_dir": None,            # resolved lazily, see models_dir()
     "silence_rms": 0.0015,         # skip near-silent clips (threshold proven in a sibling project)
@@ -98,6 +98,12 @@ def _migrate(cfg: dict, raw: dict) -> None:
     cfg.pop("cleanup", None)                    # superseded; save() would drop it anyway
     if cfg.get("cleanup_mode") not in CLEANUP_MODES:
         cfg["cleanup_mode"] = "off"
+    # "localhost" tries ::1 first, Ollama listens on 127.0.0.1 only, and Windows
+    # sits out the whole 1 s connect timeout before falling back: every status
+    # check froze the window for a second (2026-09-25, measured 1027 ms vs 18 ms).
+    # Only the OLD DEFAULT is rewritten - a URL the user typed is theirs.
+    if cfg.get("ollama_url") == "http://localhost:11434":
+        cfg["ollama_url"] = DEFAULTS["ollama_url"]
 
 
 def _quarantine() -> None:

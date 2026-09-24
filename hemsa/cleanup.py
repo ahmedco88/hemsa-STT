@@ -226,7 +226,12 @@ def _same_model(configured: str, installed: str) -> bool:
 def _tags(cfg: dict) -> list[str] | None:
     """Model names this PC's Ollama has pulled, or None if it did not answer."""
     try:
-        body = requests.get(f"{cfg['ollama_url']}/api/tags", timeout=(1.0, 3)).json()
+        # 0.3 s connect: this runs on the Tk thread (Settings polls it every 3 s),
+        # a live local server connects in ~1 ms, and a stopped one on Windows
+        # otherwise holds the window for the whole timeout.
+        # ponytail: still blocks the UI up to 0.3 s when Ollama is down; move the
+        # probe to a thread if that is ever noticed.
+        body = requests.get(f"{cfg['ollama_url']}/api/tags", timeout=(0.3, 3)).json()
         return sorted(m["name"] for m in body.get("models", []) if m.get("name"))
     except Exception as exc:
         log.info("could not reach ollama: %s", exc)

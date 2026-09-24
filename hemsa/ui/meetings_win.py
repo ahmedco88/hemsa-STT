@@ -150,8 +150,9 @@ class MeetingsFrame(tk.Frame):
         Checked when the page opens and again when the user presses Record or
         Retry - the two moments where it changes what they get - rather than on a
         timer: cleanup.status() is an HTTP call and this page now lives for the
-        whole session. Down is the fast case (connection refused on localhost is
-        immediate), which is the case worth being quick about."""
+        whole session. It runs on the Tk thread, so it is only cheap because
+        cleanup._tags caps the connect at 0.3 s: a refused connection on Windows
+        is NOT immediate, it waits out the timeout (measured 2026-09-25)."""
         if not self._wants_summary():
             self._ollama = "ready"        # nothing is going to ask for a summary
             self._clear_warning()
