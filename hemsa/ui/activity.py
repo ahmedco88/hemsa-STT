@@ -26,7 +26,7 @@ import tkinter as tk
 from .. import palette as P
 from . import theme
 from .scale import px
-from .widgets import RoundCard, mix
+from .widgets import PillButton, RoundCard, mix
 
 BARS = 44
 FRAME_MS = 40
@@ -49,13 +49,16 @@ class ActivityCard(RoundCard):
     """pack() it once and call set(state=..., level=..., elapsed=...) from a
     timer. Call hide() when nothing is running."""
 
-    def __init__(self, parent: tk.Misc):
+    def __init__(self, parent: tk.Misc, on_stop=None):
         super().__init__(parent, radius=14, pad=0)
+        self._on_stop = on_stop
+        self._stopping = False
         self.state = "idle"
         self._levels = [0.0] * BARS
         self._phase = 0.0
         self._elapsed = 0.0
         self._done = self._total = 0
+        self._engine = ""
 
         body = self.body
         self._top = tk.Frame(body)
@@ -68,6 +71,9 @@ class ActivityCard(RoundCard):
         self._label.pack(side="left")
         self._clock = tk.Label(self._top, font=theme.F.medium, anchor="e")
         self._clock.pack(side="right")
+        # packed only while transcribing, to the LEFT of the clock
+        self._stop = PillButton(self._top, "Stop", kind="ghost", padx=12, pady=4,
+                                font=theme.F.small, command=self._stop_clicked)
 
         self._wave = tk.Canvas(body, height=px(WAVE_H), highlightthickness=0, bd=0)
         self._wave.pack(fill="x", padx=px(18), pady=(0, px(4)))
@@ -84,13 +90,18 @@ class ActivityCard(RoundCard):
 
     # ---- the one entry point ----
     def set(self, state: str, level: float = 0.0, elapsed: float = 0.0,
-            done: int = 0, total: int = 0) -> None:
+            done: int = 0, total: int = 0, engine: str = "") -> None:
         if state != self.state:
             self.state = state
             self._track.pack_forget()
+            self._stop.pack_forget()
+            self._stopping = False
             if state == "recording":
                 self._levels = [0.0] * BARS          # a new recording starts empty
             elif state == "transcribing":
+                self._stop.configure_text("Stop")
+                if self._on_stop is not None:
+                    self._stop.pack(side="right", padx=(0, px(12)))
                 # KEEP the recording's shape and grey it: the card is showing the
                 # audio being read back. If there is nothing to keep (the page was
                 # opened mid-job, or Hemsa restarted) fall back to a static trace,
@@ -101,6 +112,7 @@ class ActivityCard(RoundCard):
                 self._track.pack(fill="x", padx=px(18), pady=(px(6), px(4)),
                                  before=self._hint)
         self._elapsed, self._done, self._total = elapsed, done, total
+        self._engine = engine
         self._phase += 0.16
         if state == "recording":
             self._recording(level)
@@ -108,6 +120,13 @@ class ActivityCard(RoundCard):
             self._transcribing()
         elif state == "summarising":
             self._summarising()
+
+    def _stop_clicked(self) -> None:
+        if self._stopping or self._on_stop is None:
+            return
+        self._stopping = True
+        self._stop.configure_text("Stopping…")
+        self._on_stop()
 
     # ---- per state ----
     def _recording(self, level: float) -> None:
@@ -120,10 +139,15 @@ class ActivityCard(RoundCard):
         self._hint.configure(text="Both sides are being captured on this PC.")
 
     def _transcribing(self) -> None:
-        self._paint(P.LINE, live=False)
-        self._dot.itemconfigure(self._dot_id, fill=P.ACCENT)
-        w, h = self._track.winfo_width(), px(4)
         frac = (self._done / self._total) if self._total else 0.0
+        # The recording's shape breathes, and the part already read turns accent:
+        # a slow chunk (Whisper is ~14 s each) still shows the card is alive.
+        self._breath = [v * (0.82 + 0.18 * math.sin(self._phase * 1.4 - i * 0.45))
+                        for i, v in enumerate(self._levels)]
+        self._paint(P.LINE, live=False, split=frac, shape=self._breath)
+        lit = math.sin(self._phase * 1.6) > -0.3
+        self._dot.itemconfigure(self._dot_id, fill=P.ACCENT if lit else P.MIST)
+        w, h = self._track.winfo_width(), px(4)
         self._track.coords(self._track_bg, 0, 0, w, h)
         self._track.coords(self._track_fill, 0, 0, w * min(1.0, frac), h)
         self._track.itemconfigure(self._track_bg, fill=P.MIST)
@@ -132,8 +156,13 @@ class ActivityCard(RoundCard):
         # no count until the first chunk is planned, rather than a fake "0 of 0"
         self._clock.configure(
             text=f"{self._done} of {self._total}" if self._total else "")
+        who = f"{self._engine}. " if self._engine else ""
         self._hint.configure(
-            text="Turning the recording into text. Nothing leaves this PC.")
+            text=f"{who}Turning the recording into text. Nothing leaves this PC.")
+        self._label.configure(
+            text="Stopping after this part…" if self._stopping
+            else (f"Transcribing with {self._engine}" if self._engine
+                  else "Transcribing"))
 
     def _summarising(self) -> None:
         for i in range(BARS):
@@ -147,17 +176,22 @@ class ActivityCard(RoundCard):
         self._hint.configure(text="Usually 5 to 20 seconds on this PC.")
 
     # ---- drawing ----
-    def _paint(self, colour: str, live: bool) -> None:
+    def _paint(self, colour: str, live: bool, split: float | None = None,
+               shape: list | None = None) -> None:
+        """split: fraction of bars (from the left) already in the accent colour."""
+        levels = shape if shape is not None else self._levels
         w = self._wave.winfo_width() or px(600)
         h = self._wave.winfo_height() or px(WAVE_H)
         gap = px(2)
         bw = max(px(2), (w - gap * (BARS - 1)) / BARS)
         for i, bid in enumerate(self._bars):
             x = i * (bw + gap)
-            bh = max(px(2), self._levels[i] * h * 0.92)
+            bh = max(px(2), levels[i] * h * 0.92)
             # oldest on the left fades into the card, so the eye lands on "now"
             fill = mix(_ground(), colour, 0.40 + (i / BARS) * 0.60) if live \
                 else colour
+            if split is not None:
+                fill = P.ACCENT if (i + 1) / BARS <= split else colour
             self._wave.coords(bid, x, (h - bh) / 2, x + bw, (h + bh) / 2)
             self._wave.itemconfigure(bid, fill=fill)
 
@@ -172,6 +206,8 @@ class ActivityCard(RoundCard):
         self._label.configure(bg=P.CARD, fg=P.INK)
         self._clock.configure(bg=P.CARD, fg=P.MUTED)
         self._hint.configure(bg=P.CARD, fg=P.MUTED)
+        if hasattr(self, "_stop"):
+            self._stop.restyle()
 
 
 def _ground() -> str:

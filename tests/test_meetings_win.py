@@ -310,3 +310,29 @@ def test_source_picker_saves_and_locks_while_recording(frame, store):
     frame._app.jobs.recording_id = "abc123"
     frame.refresh()
     assert str(frame._source_box.cget("state")) == "disabled"
+
+
+def test_opening_a_meeting_keeps_the_list_beside_it(frame, store):
+    a, b = store.create("import"), store.create("import")
+    frame.refresh()
+    frame._open_detail(a)
+    assert frame._split and frame._list.winfo_manager() == "pack"
+    assert frame._list.pack_info()["side"] == "left"
+    frame._open_detail(b)                      # another meeting, no trip back
+    assert frame._open_id == b
+    frame._show_list()
+    assert not frame._split and frame._list.pack_info()["fill"] == "both"
+
+
+def test_engine_picker_saves_to_config(frame):
+    frame._engine.set("Whisper (slower, wider)")
+    frame._save_engine()
+    assert frame._app.cfg["meeting_engine"] == "whisper"
+
+
+def test_activity_card_names_the_engine_while_transcribing(root):
+    from hemsa.ui.activity import ActivityCard
+    card = ActivityCard(root)
+    card.set("transcribing", done=1, total=17, engine="Whisper large-v3-turbo")
+    assert "Whisper large-v3-turbo" in card._label.cget("text")
+    card.destroy()

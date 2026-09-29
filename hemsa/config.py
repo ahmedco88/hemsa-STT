@@ -46,6 +46,8 @@ DEFAULTS = {
     "history_cap": 200,
     "meeting_treatment": "ai",     # ai = transcript + summary, fast = transcript only
     "meeting_source": "both",      # both = mic + system audio, mic = microphone only
+    "meeting_engine": "parakeet",  # parakeet | whisper (meetings only, never dictation)
+    "meeting_language": "en",      # Whisper only: en | ar | auto
 }
 
 

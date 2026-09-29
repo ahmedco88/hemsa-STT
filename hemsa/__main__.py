@@ -280,6 +280,13 @@ def selftest() -> int:
     except meetings.MeetingsUnreadable as exc:
         print(f"meetings   : FAIL ({exc})")
     print(f"ollama     : {cleanup.status(cfg)}")
+    try:
+        from pywhispercpp.model import Model      # noqa: F401  runtime only, no model load
+        wh = "runtime ok"
+    except Exception as exc:
+        wh = f"runtime MISSING ({exc})"
+    from . import whisper_engine
+    print(f"whisper    : {wh}, model {'found' if whisper_engine.available(cfg) else 'absent'}")
     if config.models_present(cfg):
         eng = Engine(cfg)
         eng._ready.wait(timeout=120)

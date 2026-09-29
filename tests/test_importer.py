@@ -1,9 +1,11 @@
+import sys
 import wave
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from hemsa import importer
 from hemsa.importer import ImportUnsupported, to_wav
 
 
@@ -53,6 +55,29 @@ def test_m4a_decodes_to_16k_mono_wav(tmp_path, m4a):
         assert f.getframerate() == 16000 and f.getnchannels() == 1
         audio = np.frombuffer(f.readframes(f.getnframes()), dtype=np.int16)
     assert np.abs(audio).max() > 1000          # the tone survived
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Media Foundation is Windows-only")
+def test_m4a_decodes_without_pyav(tmp_path, m4a, monkeypatch):
+    """The packaged build has no av: prove the Windows-codec path on its own."""
+    monkeypatch.setattr(importer, "_pyav", lambda: False)
+    dest = tmp_path / "import.wav"
+    seconds = to_wav(m4a, dest)
+    assert 1.8 <= seconds <= 2.2
+    with wave.open(str(dest)) as f:
+        assert f.getframerate() == 16000 and f.getnchannels() == 1
+        audio = np.frombuffer(f.readframes(f.getnframes()), dtype=np.int16)
+    assert np.abs(audio).max() > 1000
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Media Foundation is Windows-only")
+def test_garbage_without_pyav_is_readable(tmp_path, monkeypatch):
+    monkeypatch.setattr(importer, "_pyav", lambda: False)
+    src = tmp_path / "notaudio.m4a"
+    src.write_bytes(b"definitely not media")
+    with pytest.raises(ImportUnsupported) as exc:
+        to_wav(src, tmp_path / "out.wav")
+    assert "notaudio.m4a" in str(exc.value)
 
 
 def test_garbage_raises_readable_error(tmp_path):

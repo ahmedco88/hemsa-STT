@@ -9,7 +9,7 @@ the local Ollama and the page lives for the whole session inside the shell.
 import tkinter as tk
 from tkinter import ttk
 
-from .. import audio, cleanup, config, hotkey, palette as P, winutil
+from .. import audio, cleanup, config, hotkey, palette as P, whisper_engine, winutil
 from . import theme
 from .scale import px
 from .widgets import PillButton, RoundCard, ScrollFrame, Toggle
@@ -18,6 +18,9 @@ PAD = 40                 # logical px, through px() at use time
 POLL_MS = 3000
 
 _MODEL_HINT = "Used only in Full mode. Choose from the models Ollama has on this PC."
+_ENGINES = {"parakeet": "Parakeet (fast)", "whisper": "Whisper (slower, wider)"}
+_WHISPER_HINT = ("Meetings and imported files only; dictation always uses Parakeet. "
+                 "Whisper takes about as long as the recording.")
 
 _AUTOSTART_OK = "Hemsa opens in the tray when you sign in."
 _AUTOSTART_BLOCKED = ("Windows has this switched off under Task Manager, Startup apps. "
@@ -136,6 +139,24 @@ class SettingsPage(tk.Frame):
         self._widgets.append(self.start_ollama)
         self._fill_models([], known=False)
 
+        body = self._card("Meetings")
+        right = self._row(body, "Transcription engine", _WHISPER_HINT, first=True)
+        self.engine_hint = self._last_hint
+        self.meng_var = tk.StringVar(value=_ENGINES[cfg.get("meeting_engine", "parakeet")])
+        meng = ttk.Combobox(right, textvariable=self.meng_var, state="readonly", width=22,
+                            values=list(_ENGINES.values()), style="Hemsa.TCombobox")
+        meng.pack()
+        meng.bind("<<ComboboxSelected>>", lambda e: self._set_meeting_engine())
+        right = self._row(body, "Whisper language",
+                          "Auto-detect can pick the wrong language for a whole recording.")
+        self.mlang_var = tk.StringVar(value=dict(whisper_engine.LANGUAGES)[
+            cfg.get("meeting_language", "en")])
+        mlang = ttk.Combobox(right, textvariable=self.mlang_var, state="readonly", width=22,
+                             values=[n for _, n in whisper_engine.LANGUAGES],
+                             style="Hemsa.TCombobox")
+        mlang.pack()
+        mlang.bind("<<ComboboxSelected>>", lambda e: self._set_meeting_language())
+
         body = self._card("On this PC")
         self.engine_dot, self.engine_lbl = self._status_row(
             body, "Speech engine", "Parakeet v2 (English)", first=True)
@@ -207,6 +228,8 @@ class SettingsPage(tk.Frame):
         self.model_var.set(cfg["cleanup_model"])
         for key in ("autostart", "sounds", "show_orb", "update_check"):
             getattr(self, f"_var_{key}").set(bool(cfg[key]))
+        self.meng_var.set(_ENGINES[cfg.get("meeting_engine", "parakeet")])
+        self._update_engine_hint()
         self._update_hint()
         self._update_autostart_hint()
         self._paint_swatches()
@@ -243,6 +266,26 @@ class SettingsPage(tk.Frame):
         config.save(self.app.cfg)
         if then:
             then()
+
+    def _set_meeting_engine(self) -> None:
+        key = next(k for k, v in _ENGINES.items() if v == self.meng_var.get())
+        self._set("meeting_engine", key)
+        self._update_engine_hint()
+
+    def _set_meeting_language(self) -> None:
+        key = next(k for k, n in whisper_engine.LANGUAGES if n == self.mlang_var.get())
+        self._set("meeting_language", key)
+
+    def _update_engine_hint(self) -> None:
+        # Naming the missing file here, not at the first failed meeting: Whisper is
+        # chosen now and its absence would otherwise surface an hour later.
+        if (self.app.cfg.get("meeting_engine") == "whisper"
+                and not whisper_engine.available(self.app.cfg)):
+            self.engine_hint.configure(
+                text="Whisper model not found. Expected "
+                     f"{whisper_engine.model_path(self.app.cfg)}")
+        else:
+            self.engine_hint.configure(text=_WHISPER_HINT)
 
     def _apply_autostart(self) -> None:
         try:

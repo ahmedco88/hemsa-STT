@@ -55,10 +55,11 @@ class WavReader:
         self.close()
 
 
-def plan_chunks(n_samples, rate, audio_getter):
-    """Tile [0, n_samples) into ranges <= MAX_CHUNK_S, cutting at quiet points.
-    audio_getter(a, b) returns samples for scoring only (keeps RAM bounded)."""
-    max_len, search_from = MAX_CHUNK_S * rate, SEARCH_FROM_S * rate
+def plan_chunks(n_samples, rate, audio_getter, max_chunk_s=MAX_CHUNK_S):
+    """Tile [0, n_samples) into ranges <= max_chunk_s, cutting at quiet points in the
+    last third. audio_getter(a, b) returns samples for scoring only (keeps RAM bounded)."""
+    max_len = max_chunk_s * rate
+    search_from = max_len * SEARCH_FROM_S // MAX_CHUNK_S
     win = int(QUIET_WIN_S * rate)
     chunks, start = [], 0
     while n_samples - start > max_len:
@@ -75,7 +76,16 @@ def plan_chunks(n_samples, rate, audio_getter):
     return chunks
 
 
-def transcribe_wav(path, channel, engine, words, wait_idle, on_progress=None):
+class Stopped(Exception):
+    """The user stopped transcription. `partial` is what was already read."""
+
+    def __init__(self, partial):
+        super().__init__("transcription stopped")
+        self.partial = partial
+
+
+def transcribe_wav(path, channel, engine, words, wait_idle, on_progress=None,
+                   max_chunk_s=MAX_CHUNK_S, should_stop=None):
     """WAV -> [{"start", "end", "channel", "text"}], engine-safe chunking.
     Reads the WAV per chunk (WavReader), never loads it whole.
 
@@ -85,10 +95,13 @@ def transcribe_wav(path, channel, engine, words, wait_idle, on_progress=None):
     from . import dictionary
     out = []
     with WavReader(path) as reader:
-        chunks = plan_chunks(reader.n_samples, SAMPLE_RATE, reader.slice)
+        chunks = plan_chunks(reader.n_samples, SAMPLE_RATE, reader.slice,
+                             max_chunk_s)
         if on_progress:
             on_progress(0, len(chunks))
         for i, (a, b) in enumerate(chunks, 1):
+            if should_stop is not None and should_stop():
+                raise Stopped(out)          # between chunks: one is never cut in half
             clip = reader.slice(a, b)
             # every path out of this iteration ticks the counter: a run of silent
             # chunks would otherwise stall the bar and read as a hang

@@ -81,11 +81,18 @@ all of it "Me" would put the other person's words in your mouth.
 
 Like dictation, all of it happens on your PC. Nothing is uploaded.
 
-**Importing a file you already have** (`.m4a`, `.mp4`, `.mp3`) works only when you
-run Hemsa from source, with `pip install av`. It is left out of the installer on
-purpose: the ffmpeg build that PyAV ships includes GPL-licensed encoders, and
-Hemsa is MIT. Recording, transcription and summaries need none of it. Details in
+**Importing a file you already have** (`.m4a`, `.mp3`, `.wav`, `.mp4`) works in the
+installed app, including phone voice recordings. It uses the audio codecs built into
+Windows, so nothing extra is bundled. Other formats (`.ogg`, `.flac`, `.webm`) need
+Hemsa run from source with `pip install av`. Details in
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+**Optional Whisper for meetings.** Settings > Meetings can switch the transcription
+engine from Parakeet to Whisper large-v3-turbo, with a language choice (English,
+Arabic, auto-detect; Arabic is untested). It is for meetings and imported files only; dictation always
+uses Parakeet. Whisper takes roughly as long as the recording on a CPU, and you supply
+the model file (`ggml-large-v3-turbo-q5_0.bin`, in a `whisper-large-v3-turbo` folder
+beside the Parakeet model folder). Hemsa never downloads it.
 
 **Three things to be clear about before you use it.**
 
@@ -297,4 +304,4 @@ and lets the model live outside Program Files.
 MIT - see [LICENSE](LICENSE). The speech model is licensed separately (CC-BY-4.0),
 and the installed app bundles other people's libraries under their own licences:
 see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), which also explains why
-the installer ships no ffmpeg at all, and so no file import.
+the installer ships no ffmpeg at all (file import uses Windows' own codecs).

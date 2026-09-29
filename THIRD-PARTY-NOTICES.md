@@ -21,10 +21,18 @@ Not bundled: it is downloaded on first run to `%LOCALAPPDATA%\Hemsa\models\`.
   channel needs the loopback patch, and the microphone goes through the same
   library. Dictation does not use it.
 
+## Whisper (optional, meetings only)
+
+`pywhispercpp` (MIT) wraps `whisper.cpp` (MIT) and ships in the installer. The Whisper
+model file (OpenAI large-v3-turbo, MIT, ggml Q5_0 conversion) is **not** bundled or
+downloaded by Hemsa; the user supplies it. Dictation never uses Whisper.
+
 ## Media import (meetings) - NOT in the installer
 
-Meeting **file import** uses **PyAV**, and PyAV is deliberately **not bundled**.
-The installer contains no ffmpeg.
+The installed app imports `.m4a`, `.mp3`, `.wav` and `.mp4` through **Windows'
+own Media Foundation codecs** (`hemsa/mf_decode.py`); nothing is bundled and there
+is nothing to license. Formats Windows cannot play need **PyAV**, which is
+deliberately **not bundled**. The installer contains no ffmpeg.
 
 PyAV's Python wrapper is BSD-3-Clause, but its wheel also ships around 25
 pre-built ffmpeg DLLs, and those are not BSD: ffmpeg itself is LGPL-3.0-or-later
@@ -38,8 +46,8 @@ through its PE import table, so deleting them fails PyAV at `import av` with
 "DLL load failed while importing _core" (measured, not assumed).
 
 So the packaged app ships without it. Recording a meeting, transcribing it and
-summarising it all work with no ffmpeg. Only importing an existing audio or video
-file is affected, and that works when you run Hemsa from source:
+summarising it all work with no ffmpeg. Importing a format Windows cannot play
+(ogg, flac, webm) works when you run Hemsa from source:
 
 ```
 .venv\Scripts\python.exe -m pip install av

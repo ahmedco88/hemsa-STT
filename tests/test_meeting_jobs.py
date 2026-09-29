@@ -36,7 +36,7 @@ def test_import_pipeline_reaches_done(env, monkeypatch, tmp_path):
     monkeypatch.setattr(meeting_jobs.importer, "to_wav",
                         lambda src, dest: (dest.write_bytes(b"RIFF"), 42.0)[1])
     monkeypatch.setattr(meeting_jobs.longform, "transcribe_wav",
-                        lambda path, ch, eng, words, wait_idle, on_progress=None:
+                        lambda path, ch, eng, words, wait_idle, on_progress=None, max_chunk_s=90, should_stop=None:
                         [{"start": 0.0, "end": 4.0, "channel": ch, "text": "hi"}])
     monkeypatch.setattr(meeting_jobs.summarize, "summarize",
                         lambda segs, cfg, labelled=True: ("- talked", "- none"))
@@ -148,7 +148,7 @@ def test_a_capture_abort_ends_in_error_with_the_audio_kept(env, monkeypatch):
     monkeypatch.setattr(meeting_jobs.meeting_audio, "MeetingRecorder", FakeRecorder)
     monkeypatch.setattr(meeting_jobs.dictionary, "load", lambda: [])
     monkeypatch.setattr(meeting_jobs.longform, "transcribe_wav",
-                        lambda path, ch, eng, words, wait_idle, on_progress=None:
+                        lambda path, ch, eng, words, wait_idle, on_progress=None, max_chunk_s=90, should_stop=None:
                         [{"start": 0.0, "end": 1.0, "channel": ch,
                           "text": "half a call"}])
     monkeypatch.setattr(meeting_jobs.summarize, "summarize",
@@ -240,3 +240,75 @@ def test_mic_only_stamps_the_source_and_drops_the_speaker_labels(env, monkeypatc
 
     m["source"] = "record"
     assert "Me:" in transcript_text(m)
+
+
+def test_whisper_choice_uses_whisper_and_does_not_fall_back(env, monkeypatch, tmp_path):
+    """Picking Whisper must never quietly transcribe with Parakeet."""
+    meetings = env
+    from hemsa import meeting_jobs
+    seen = {}
+
+    class FakeWhisper:
+        def __init__(self, cfg):
+            pass
+
+    def _fake(path, ch, eng, words, wait_idle, on_progress=None, max_chunk_s=90, should_stop=None):
+        seen["engine"], seen["chunk"] = eng, max_chunk_s
+        return [{"start": 0.0, "end": 1.0, "channel": ch, "text": "hi"}]
+
+    monkeypatch.setattr(meeting_jobs.importer, "to_wav",
+                        lambda src, dest: (dest.write_bytes(b"RIFF"), 5.0)[1])
+    monkeypatch.setattr(meeting_jobs.whisper_engine, "WhisperEngine", FakeWhisper)
+    monkeypatch.setattr(meeting_jobs.longform, "transcribe_wav", _fake)
+    monkeypatch.setattr(meeting_jobs.dictionary, "load", lambda: [])
+    jobs = meeting_jobs.MeetingJobs(
+        {"meeting_treatment": "fast", "meeting_engine": "whisper"}, FakeEngine(),
+        FakeController(), on_change=lambda mid: None)
+    src = tmp_path / "x.m4a"
+    src.write_bytes(b"fake")
+    assert wait_done(meetings, jobs.import_file(src)) == "done"
+    assert isinstance(seen["engine"], FakeWhisper) and seen["chunk"] == 30
+
+
+def test_whisper_model_missing_ends_in_error_not_parakeet(env, tmp_path):
+    meetings = env
+    from hemsa import meeting_jobs
+    jobs = meeting_jobs.MeetingJobs(
+        {"meeting_treatment": "fast", "meeting_engine": "whisper",
+         "models_dir": str(tmp_path / "parakeet-v2")}, FakeEngine(),
+        FakeController(), on_change=lambda mid: None)
+    mid = meetings.create("import")
+    meetings.folder(mid).mkdir(parents=True, exist_ok=True)
+    (meetings.folder(mid) / "import.wav").write_bytes(b"RIFF")
+    jobs.retry_summary(mid)
+    assert wait_done(meetings, mid) == "error"
+    assert "Whisper model not found" in meetings.get(mid)["error"]
+
+
+def test_stop_transcribing_keeps_what_was_read_and_skips_the_summary(env, monkeypatch, tmp_path):
+    """Stop must end the meeting in error with a plain message, keep the partial
+    transcript, and never wake the summariser."""
+    meetings = env
+    from hemsa import longform, meeting_jobs
+    monkeypatch.setattr(meeting_jobs.importer, "to_wav",
+                        lambda src, dest: (dest.write_bytes(b"RIFF"), 60.0)[1])
+    monkeypatch.setattr(meeting_jobs.dictionary, "load", lambda: [])
+
+    def _halts(*a, **k):
+        raise longform.Stopped([{"start": 0.0, "end": 1.0, "channel": "me",
+                                 "text": "first part"}])
+    monkeypatch.setattr(meeting_jobs.longform, "transcribe_wav", _halts)
+    called = []
+    monkeypatch.setattr(meeting_jobs.summarize, "summarize",
+                        lambda *a, **k: called.append(1))
+    jobs = meeting_jobs.MeetingJobs({"meeting_treatment": "ai"}, FakeEngine(),
+                                    FakeController(), lambda mid: None)
+    mid = meetings.create("import")
+    d = meetings.folder(mid)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "pending_import").write_text("x.m4a", encoding="utf-8")
+    jobs._run(mid)
+    m = meetings.get(mid)
+    assert m["status"] == "stopped" and "Stopped by you" in m["error"]
+    assert [s["text"] for s in m["segments"]] == ["first part"]
+    assert not called

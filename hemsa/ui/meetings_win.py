@@ -27,7 +27,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import pyperclip
 
-from .. import cleanup, config, history, meetings, palette as P
+from .. import cleanup, config, history, meetings, palette as P, whisper_engine
 from . import theme
 from .scale import px
 from .activity import ActivityCard, FRAME_MS
@@ -71,13 +71,19 @@ TREATMENT_LABELS = dict(TREATMENTS)
 SOURCES = (("both", "Mic + system audio"), ("mic", "Microphone only"))
 SOURCE_LABELS = dict(SOURCES)
 
+# Same words as Settings, so the two pickers read as one setting.
+ENGINES = (("parakeet", "Parakeet (fast)"), ("whisper", "Whisper (slower, wider)"))
+ENGINE_LABELS = dict(ENGINES)
+RAIL_W = 250             # logical px: the meeting list beside an open meeting
+
 AUDIO_TYPES = [
     ("Audio/video", "*.m4a *.mp4 *.mp3 *.wav *.flac *.ogg *.opus *.webm"),
     ("All files", "*.*"),
 ]
 
 STATUS_LABELS = {"recording": "Recording", "transcribing": "Transcribing",
-                 "summarising": "Summarising", "done": "Done", "error": "Error"}
+                 "summarising": "Summarising", "done": "Done", "error": "Error",
+                 "stopped": "Stopped"}
 BUSY = ("recording", "transcribing", "summarising")
 
 
@@ -124,6 +130,7 @@ class MeetingsFrame(tk.Frame):
         self._paper: list[tuple[tk.Widget, str | None]] = []    # (widget, fg slot)
         self._on_card: list[tuple[tk.Widget, str | None]] = []
         self._widgets: list = []                                 # things with restyle()
+        self._split = False        # True while the list sits beside an open meeting
         self._build_header()
         self._build_activity()
         self._build_list()
@@ -138,6 +145,8 @@ class MeetingsFrame(tk.Frame):
     _ollama = "ready"          # class default: no warning until something checks
 
     def on_show(self) -> None:
+        self._engine.set(ENGINE_LABELS.get(
+            self._app.cfg.get("meeting_engine", "parakeet"), ENGINE_LABELS["parakeet"]))
         self._check_ollama()
         self.refresh()
 
@@ -219,10 +228,15 @@ class MeetingsFrame(tk.Frame):
     def _build_activity(self) -> None:
         """Packed once, here, so it sits between the header and BOTH views and
         the page never jumps when it appears."""
-        self._activity = ActivityCard(self)
+        self._activity = ActivityCard(self, on_stop=self._stop_transcribing)
         self._widgets.append(self._activity)
         self._active_since = 0.0
         self._active_state = "idle"
+
+    def _stop_transcribing(self) -> None:
+        jobs = self._jobs()
+        if jobs is not None:
+            jobs.stop_transcribing()
 
     # ---- header and consent line ----
     def _build_header(self) -> None:
@@ -240,41 +254,40 @@ class MeetingsFrame(tk.Frame):
         self._rec.pack(side="right")
         self._widgets.append(self._rec)
 
-        current = self._app.cfg.get("meeting_treatment", "ai")
-        self._treat = tk.StringVar(
-            value=TREATMENT_LABELS.get(current, TREATMENT_LABELS["ai"]))
-        combo = ttk.Combobox(head, textvariable=self._treat, state="readonly", width=19,
-                             style="Hemsa.TCombobox",
-                             values=[label for _, label in TREATMENTS])
-        combo.pack(side="right", padx=(0, px(10)))
-        combo.bind("<<ComboboxSelected>>", lambda e: self._save_treatment())
         self._import = PillButton(head, "Import audio…", kind="ghost",
                                   command=self._import_file)
         self._import.pack(side="right", padx=(0, px(10)))
         self._widgets.append(self._import)
 
+        # Three labelled choices on their own row: each says what it controls, and
+        # none of them has to squeeze in beside the title and the Record button.
+        cfg = self._app.cfg
+        self._treat = tk.StringVar(value=TREATMENT_LABELS.get(
+            cfg.get("meeting_treatment", "ai"), TREATMENT_LABELS["ai"]))
+        self._source = tk.StringVar(value=SOURCE_LABELS.get(
+            cfg.get("meeting_source", "both"), SOURCE_LABELS["both"]))
+        self._engine = tk.StringVar(value=ENGINE_LABELS.get(
+            cfg.get("meeting_engine", "parakeet"), ENGINE_LABELS["parakeet"]))
+        opts = tk.Frame(self)
+        opts.pack(fill="x", padx=px(PAD), pady=(0, px(4)))
+        self._paper.append((opts, None))
+        self._source_box = self._option(opts, "Capture", self._source, SOURCES,
+                                        self._save_source, 20)
+        self._engine_box = self._option(opts, "Engine", self._engine, ENGINES,
+                                        self._save_engine, 22)
+        self._option(opts, "Output", self._treat, TREATMENTS,
+                     self._save_treatment, 20)
+
         consent = tk.Frame(self)
-        consent.pack(fill="x", padx=px(PAD))
+        consent.pack(fill="x", padx=px(PAD), pady=(px(8), 0))
         self._paper.append((consent, None))
         self._dot = tk.Canvas(consent, width=px(18), height=px(18),
                               highlightthickness=0, bd=0)
         self._dot_id = self._dot.create_oval(px(6), px(6), px(12), px(12), width=0)
         self._dot.pack(side="left", padx=(0, px(8)))
         self._paper.append((self._dot, None))
-
-        # Sits where the "Microphone"/"System audio" chips used to: one place
-        # says what is being captured, and it is the control that sets it.
-        current_src = self._app.cfg.get("meeting_source", "both")
-        self._source = tk.StringVar(
-            value=SOURCE_LABELS.get(current_src, SOURCE_LABELS["both"]))
-        self._source_box = ttk.Combobox(
-            consent, textvariable=self._source, state="readonly", width=18,
-            style="Hemsa.TCombobox", values=[label for _, label in SOURCES])
-        self._source_box.pack(side="left", padx=(0, px(6)))
-        self._source_box.bind("<<ComboboxSelected>>", lambda e: self._save_source())
-
         self._note = tk.Label(consent, text=COURTESY, font=theme.F.small, anchor="w")
-        self._note.pack(side="left", padx=(px(6), 0))
+        self._note.pack(side="left")
         self._paper.append((self._note, "MUTED"))
         self._msg = tk.Label(self, text="", font=theme.F.small, anchor="w",
                              justify="left", wraplength=px(640))
@@ -296,11 +309,37 @@ class MeetingsFrame(tk.Frame):
         self._recheck.pack(side="left", padx=(px(8), 0))
         self._widgets += [self._start_ollama, self._recheck]
 
+    def _option(self, parent, label, var, choices, on_pick, width):
+        col = tk.Frame(parent)
+        col.pack(side="left", padx=(0, px(18)))
+        cap = tk.Label(col, text=label, font=theme.F.small, anchor="w")
+        cap.pack(fill="x", pady=(0, px(3)))
+        self._paper += [(col, None), (cap, "MUTED")]
+        box = ttk.Combobox(col, textvariable=var, state="readonly", width=width,
+                           style="Hemsa.TCombobox", values=[l for _, l in choices])
+        box.pack()
+        box.bind("<<ComboboxSelected>>", lambda e: on_pick())
+        return box
+
     def _save_source(self) -> None:
         for key, label in SOURCES:
             if label == self._source.get():
                 self._app.cfg["meeting_source"] = key
                 config.save(self._app.cfg)
+                return
+
+    def _save_engine(self) -> None:
+        """Read by the worker when the NEXT meeting starts, so a job already
+        running keeps the engine the card names."""
+        for key, label in ENGINES:
+            if label == self._engine.get():
+                self._app.cfg["meeting_engine"] = key
+                config.save(self._app.cfg)
+                if key == "whisper" and not whisper_engine.available(self._app.cfg):
+                    self._say("Whisper model not found. Expected "
+                              f"{whisper_engine.model_path(self._app.cfg)}", bad=True)
+                else:
+                    self._say("")
                 return
 
     def _save_treatment(self) -> None:
@@ -389,7 +428,8 @@ class MeetingsFrame(tk.Frame):
         done, total = getattr(self._jobs(), "progress", (0, 0))
         self._activity.set(state, level=level,
                            elapsed=time.monotonic() - self._active_since,
-                           done=done, total=total)
+                           done=done, total=total,
+                           engine=getattr(self._jobs(), "engine_name", ""))
 
     def _paint_dot(self, level: float) -> None:
         jobs = self._jobs()
@@ -424,10 +464,18 @@ class MeetingsFrame(tk.Frame):
     def _on_wheel(self, e) -> None:
         # winfo_exists first: the binding lives on the toplevel, which outlives
         # this frame.
-        if self.winfo_exists() and self._list.winfo_ismapped():
-            self._canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+        if not (self.winfo_exists() and self._list.winfo_ismapped()):
+            return
+        if self._split:
+            # the meeting's own Texts share this window: only scroll the rail
+            # when the pointer is actually over it
+            over = self.winfo_containing(e.x_root, e.y_root)
+            if over is None or not str(over).startswith(str(self._list)):
+                return
+        self._canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
 
     def _build_rows(self) -> None:
+        keep = self._canvas.yview()[0] if self._split else 0.0
         if self._rows_card is not None:
             self._rows_card.destroy()
             self._rows_card = None
@@ -443,28 +491,37 @@ class MeetingsFrame(tk.Frame):
                 tk.Frame(card.body, height=px(1), bg=P.LINE).pack(fill="x")
             self._make_row(card.body, m, now)
         self._canvas.yview_moveto(0)
+        if keep:
+            # scrollregion updates on idle; moving before it does would clamp to 0
+            self.after_idle(lambda: self._canvas.yview_moveto(keep))
 
     def _make_row(self, parent: tk.Widget, m: dict, now: datetime) -> None:
         status = m["status"]
-        row = tk.Frame(parent, cursor="hand2", bg=P.CARD)
+        bg = P.MIST if m["id"] == self._open_id else P.CARD     # the open meeting
+        row = tk.Frame(parent, cursor="hand2", bg=bg)
         row.pack(fill="x")
         pill = tk.Label(row, text=STATUS_LABELS.get(status, status), font=theme.F.small,
-                        padx=px(10), pady=px(2), bg=P.CARD,
+                        padx=px(10), pady=px(2), bg=bg,
                         fg=self._status_colour(status),
                         highlightthickness=1, highlightbackground=P.LINE)
-        pill.pack(side="right", padx=(0, px(14)))
-        inner = tk.Frame(row, bg=P.CARD)
+        if not self._split:                            # the rail is too narrow for a pill
+            pill.pack(side="right", padx=(0, px(14)))
+        inner = tk.Frame(row, bg=bg)
         inner.pack(side="left", fill="x", expand=True, padx=px(18), pady=px(12))
         title = tk.Label(inner, text=m["title"], font=theme.F.medium, anchor="w",
-                         bg=P.CARD, fg=P.INK)
+                         bg=bg, fg=P.INK)
+        if self._split:
+            title.configure(wraplength=px(RAIL_W - 60), justify="left")
         title.pack(fill="x")
         meta = tk.Label(
-            inner, font=theme.F.small, anchor="w", bg=P.CARD, fg=P.MUTED,
-            text=f"{history.relative({'iso': m['created_iso']}, now)}"
+            inner, font=theme.F.small, anchor="w", bg=bg, fg=P.MUTED,
+            text=(f"{STATUS_LABELS.get(status, status)}  ·  "
+                  if self._split and status != "done" else "")
+                 + f"{history.relative({'iso': m['created_iso']}, now)}"
                  f"  ·  {_minutes(m['duration_s'])}")
         meta.pack(fill="x", pady=(px(3), 0))
         group = [row, inner, title, meta, pill]
-        hover(group, rest="CARD", lit="MIST")
+        hover(group, rest="MIST" if bg == P.MIST else "CARD", lit="MIST")
         for w in group:
             w.bind("<ButtonRelease-1>", lambda e, mid=m["id"]: self._open_detail(mid))
 
@@ -477,11 +534,11 @@ class MeetingsFrame(tk.Frame):
     def _build_detail(self) -> None:
         self._detail = tk.Frame(self)
         self._paper.append((self._detail, None))
-        self._back = tk.Label(self._detail, text="← All meetings", font=theme.F.small,
-                              anchor="w", cursor="hand2")
-        self._back.pack(fill="x")
-        self._back.bind("<Button-1>", lambda e: self._show_list())
-        self._paper.append((self._back, "MUTED"))
+        self._back = PillButton(self._detail, "\u2190  All meetings", kind="ghost",
+                                padx=14, pady=6, font=theme.F.small,
+                                command=self._show_list)
+        self._back.pack(anchor="w")
+        self._widgets.append(self._back)
 
         top = tk.Frame(self._detail)
         top.pack(fill="x", pady=(px(6), 0))
@@ -498,21 +555,30 @@ class MeetingsFrame(tk.Frame):
         self._paper += [(self._title, "INK"), (self._meta, "MUTED")]
 
         # the bar packs first, at the bottom: pack squeezes the LAST widget when
-        # the window is short, and that must be the panes, never the buttons
+        # the window is short, and that must be the pane, never the buttons
         bar = tk.Frame(self._detail)
         bar.pack(side="bottom", fill="x", pady=(px(14), 0))
         self._paper.append((bar, None))
+        tabs = tk.Frame(self._detail)
+        tabs.pack(side="top", fill="x", pady=(px(14), px(8)))
+        self._paper.append((tabs, None))
+        self._tab = "summary"
+        self._tabs = {}
+        for key, text in (("summary", "Summary"), ("transcript", "Transcript")):
+            lbl = tk.Label(tabs, text=text, font=theme.F.medium, cursor="hand2",
+                           padx=px(16), pady=px(7))
+            lbl.pack(side="left", padx=(0, px(4)))
+            lbl.bind("<Button-1>", lambda e, k=key: self._set_tab(k))
+            self._tabs[key] = lbl
         cols = self._cols = tk.Frame(self._detail)
-        cols.pack(side="top", fill="both", expand=True, pady=(px(14), 0))
+        cols.pack(side="top", fill="both", expand=True)
         self._paper.append((cols, None))
-        self._summary = self._pane(cols, "SUMMARY AND ACTIONS", padx=(0, px(7)))
-        self._transcript = self._pane(cols, "TRANSCRIPT", padx=(px(7), 0))
-        self._copy_sum = PillButton(bar, "Copy summary", kind="ghost",
-                                    command=lambda: self._copy(self._summary_text()))
-        self._copy_sum.pack(side="left")
-        self._copy_tr = PillButton(bar, "Copy transcript", kind="ghost",
-                                   command=lambda: self._copy(self._transcript_text()))
-        self._copy_tr.pack(side="left", padx=(px(8), 0))
+        sum_card, self._summary = self._pane(cols)
+        tr_card, self._transcript = self._pane(cols)
+        self._pane_cards = {"summary": sum_card, "transcript": tr_card}
+        self._copy_btn = PillButton(bar, "Copy summary", kind="ghost",
+                                    command=self._copy_current)
+        self._copy_btn.pack(side="left")
         self._retry = PillButton(bar, "Retry summary", kind="ghost",
                                  command=self._retry_summary)
         self._folder = PillButton(bar, "Open folder", kind="ghost", command=self._open_folder)
@@ -521,28 +587,44 @@ class MeetingsFrame(tk.Frame):
         self._delete = PillButton(bar, "Delete", kind="danger", command=delete_cmd)
         self._delete.pack(side="right")
         self._delete.invoke = delete_cmd          # ttk.Button parity for callers
-        self._widgets += [self._copy_sum, self._copy_tr, self._retry, self._folder,
-                          self._delete]
+        self._widgets += [self._copy_btn, self._retry, self._folder, self._delete]
+        self._set_tab("summary")
 
-    def _pane(self, parent: tk.Widget, heading: str, padx) -> tk.Text:
+    def _set_tab(self, key: str) -> None:
+        self._tab = key
+        for k, lbl in self._tabs.items():
+            on = k == key
+            lbl.configure(bg=P.MIST if on else P.PAPER, fg=P.INK if on else P.MUTED)
+        for k, card in self._pane_cards.items():
+            if k == key:
+                card.pack(fill="both", expand=True)
+            else:
+                card.pack_forget()
+        self._copy_btn.configure_text(
+            "Copy transcript" if key == "transcript" else "Copy summary")
+
+    def _copy_current(self) -> None:
+        self._copy(self._transcript_text() if self._tab == "transcript"
+                   else self._summary_text())
+
+    def _pane(self, parent: tk.Widget):
+        """One reading pane (a card holding a read-only Text). Returns (card, text);
+        the caller packs the card, because only one is on screen at a time."""
         card = RoundCard(parent, width=px(100), pad=0)
-        card.pack(side="left", fill="both", expand=True, padx=padx)
         _stretch(card)
         self._widgets.append(card)
-        head = tk.Label(card.body, text=heading, font=theme.F.eyebrow, anchor="w")
-        head.pack(fill="x", padx=px(18), pady=(px(14), px(6)))
         box = tk.Frame(card.body)
-        box.pack(fill="both", expand=True, padx=(px(12), px(6)), pady=(0, px(12)))
-        self._on_card += [(head, "MUTED"), (box, None)]
+        box.pack(fill="both", expand=True, padx=(px(20), px(10)), pady=px(16))
+        self._on_card.append((box, None))
         # width/height in CHARACTERS, and deliberately small: a tk.Text defaults to
-        # 80x24, and two of those side by side ask for ~1200 px. The panes stretch
-        # to the column (_stretch), so this is only the floor at the minimum height.
-        text = tk.Text(box, wrap="word", width=30, height=6)
+        # 80x24. The card stretches to the column (_stretch); this is only the floor.
+        text = tk.Text(box, wrap="word", width=30, height=6, padx=px(4), pady=px(2),
+                       spacing3=px(6))
         scroll = ttk.Scrollbar(box, orient="vertical", command=text.yview)
         text.configure(yscrollcommand=scroll.set, state="disabled")
         scroll.pack(side="right", fill="y")
         text.pack(side="left", fill="both", expand=True)
-        return text
+        return card, text
 
     def _write(self, widget: tk.Text, lines) -> None:
         """lines: [(text, tag or None), ...]. The box is read-only, so it is
@@ -555,14 +637,25 @@ class MeetingsFrame(tk.Frame):
 
     def _show_list(self) -> None:
         self._open_id = None
+        self._split = False
         self._detail.pack_forget()
+        self._list.pack_forget()
         self._list.pack(fill="both", expand=True, padx=px(PAD), pady=(px(12), px(20)))
+        if self._rows_card is not None:
+            self._build_rows()                    # drop the open-row highlight
 
     def _open_detail(self, mid: str) -> None:
         self._open_id = mid
-        self._list.pack_forget()
-        self._detail.pack(fill="both", expand=True, padx=px(PAD), pady=(px(12), px(20)))
-        self._render_detail()
+        if not self._split:
+            # list stays on screen as a rail, so another meeting is one click away
+            self._split = True
+            self._list.pack_forget()
+            self._canvas.configure(width=px(RAIL_W))
+            self._list.pack(side="left", fill="y", padx=(px(PAD), px(16)),
+                            pady=(px(12), px(20)))
+            self._detail.pack(side="left", fill="both", expand=True,
+                              padx=(0, px(PAD)), pady=(px(12), px(20)))
+        self.refresh()                            # rebuilds rows (highlight) + detail
 
     def _current(self) -> dict | None:
         if self._open_id is None:
@@ -585,8 +678,10 @@ class MeetingsFrame(tk.Frame):
             fg=self._status_colour(m["status"]))
 
         body = []
-        if m["status"] == "error" and m["error"]:
-            body.append((f"{m['error']}\n\n", "bad"))
+        if m["status"] in ("error", "stopped") and m["error"]:
+            # a stop is the user's own choice, so it reads muted, never red
+            body.append((f"{m['error']}\n\n",
+                         "bad" if m["status"] == "error" else "muted"))
         if m["summary"]:
             body.append((m["summary"].strip() + "\n", None))
         if m["actions"]:
@@ -780,5 +875,6 @@ class MeetingsFrame(tk.Frame):
             box.tag_configure("head", foreground=P.ACCENT, font=theme.F.eyebrow)
             box.tag_configure("muted", foreground=P.MUTED)
             box.tag_configure("bad", foreground=P.DANGER)
+        self._set_tab(self._tab)
         # rows carry their colours from build time, so refresh() rebuilds them
         self.refresh()

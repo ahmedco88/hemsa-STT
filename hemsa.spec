@@ -4,7 +4,19 @@ Produces dist\\Hemsa\\Hemsa.exe (onedir: sherpa-onnx DLLs load faster and the
 661 MB model stays OUTSIDE the bundle - config.models_dir resolves it at runtime).
 Windowed (no console): logs go to %LOCALAPPDATA%\\Hemsa\\hemsa.log as usual."""
 
+import glob
+import importlib.util
+import os
+
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+
+# pywhispercpp (MIT, optional Whisper for meetings) keeps its compiled core as a
+# top-level extension plus a hash-named whisper-*.dll in site-packages, which
+# collect_dynamic_libs("pywhispercpp") does not see. Listed explicitly, or the
+# packaged exe builds clean and fails only when Whisper is chosen.
+_wh = importlib.util.find_spec("_pywhispercpp")
+_whisper_dlls = [(f, ".") for f in glob.glob(
+    os.path.join(os.path.dirname(_wh.origin), "whisper-*.dll"))] if _wh else []
 
 a = Analysis(
     ["launcher.py"],   # NOT hemsa\__main__.py: its relative imports need package context
@@ -19,6 +31,7 @@ a = Analysis(
     binaries=(
         collect_dynamic_libs("sherpa_onnx")
         + collect_dynamic_libs("pyaudiowpatch")
+        + _whisper_dlls
     ),
     # certifi is collected EXPLICITLY. It used to arrive only because something
     # imported requests; if that ever stopped, the model download would fail with
@@ -37,6 +50,7 @@ a = Analysis(
         "PIL.ImageDraw", "PIL.ImageFont",
         "requests",
         "pyaudiowpatch",
+        "pywhispercpp.model", "_pywhispercpp",
     ],
     # Belt and braces: even if something pulls av into the dependency graph, it
     # must not reach the bundle. See the binaries note above.

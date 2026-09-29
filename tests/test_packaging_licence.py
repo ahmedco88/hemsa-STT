@@ -47,7 +47,8 @@ def test_third_party_notices_ship_with_the_installer():
 def test_import_without_pyav_explains_itself(monkeypatch, tmp_path):
     """The message a packaged user meets has to say what to do, not 'no module
     named av'. Asserts the SETUP too: available() must really report False."""
-    monkeypatch.setattr(importer, "available", lambda: False)
+    monkeypatch.setattr(importer, "_pyav", lambda: False)
+    monkeypatch.setattr(importer.mf_decode, "available", lambda: False)
     assert importer.available() is False
     with pytest.raises(importer.ImportUnsupported) as exc:
         importer.to_wav(tmp_path / "meeting.m4a", tmp_path / "out.wav")

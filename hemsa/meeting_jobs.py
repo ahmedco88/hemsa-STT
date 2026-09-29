@@ -12,7 +12,8 @@ import threading
 import time
 from pathlib import Path
 
-from . import dictionary, importer, longform, meeting_audio, meetings, summarize
+from . import (dictionary, importer, longform, meeting_audio, meetings, summarize,
+               whisper_engine)
 
 log = logging.getLogger("hemsa.meeting_jobs")
 
@@ -31,6 +32,8 @@ class MeetingJobs:
         # (done, total) for the transcription bar. Written from the worker
         # thread and READ by the UI timer - plain ints, never a Tk callback.
         self.progress: tuple[int, int] = (0, 0)
+        self._stop = threading.Event()        # set by stop_transcribing, per job
+        self.engine_name = ""      # what the transcribing card names; set per job
         self._recorder: meeting_audio.MeetingRecorder | None = None
         self._q: queue.Queue[str] = queue.Queue()
         threading.Thread(target=self._worker, daemon=True,
@@ -88,6 +91,10 @@ class MeetingJobs:
         self._q.put(mid)
         return mid
 
+    def stop_transcribing(self) -> None:
+        """Takes effect between chunks (up to ~35 s with Whisper)."""
+        self._stop.set()
+
     def retry_summary(self, mid: str) -> None:
         meetings.set_status(mid, "summarising")
         self.on_change(mid)
@@ -135,6 +142,8 @@ class MeetingJobs:
             meetings.set_duration(mid, seconds)
             pending.unlink()
         if not m["segments"]:
+            self._stop.clear()
+            stopped = False
             meetings.set_status(mid, "transcribing")
             self.progress = (0, 0)
             self.on_change(mid)
@@ -147,16 +156,38 @@ class MeetingJobs:
             def _progress(done, total, base=base):
                 self.progress = (base[0] + done, base[0] + total)
 
-            for name, channel in (("me.wav", "me"), ("them.wav", "them"),
-                                  ("import.wav", "me")):
-                path = d / name
-                if path.exists():
-                    segs.extend(longform.transcribe_wav(
-                        path, channel, self.engine, words, self._wait_idle,
-                        on_progress=_progress))
-                    base[0] = self.progress[1]
+            # Whisper is loaded for this meeting only (~1.5 GB) and raises, rather
+            # than falling back to Parakeet, if its model is missing.
+            use_whisper = self.cfg.get("meeting_engine", "parakeet") == "whisper"
+            engine = (whisper_engine.WhisperEngine(self.cfg) if use_whisper
+                      else self.engine)
+            chunk_s = whisper_engine.CHUNK_S if use_whisper else longform.MAX_CHUNK_S
+            self.engine_name = ("Whisper large-v3-turbo" if use_whisper
+                                else "Parakeet")
+            try:
+                for name, channel in (("me.wav", "me"), ("them.wav", "them"),
+                                      ("import.wav", "me")):
+                    path = d / name
+                    if path.exists():
+                        segs.extend(longform.transcribe_wav(
+                            path, channel, engine, words, self._wait_idle,
+                            on_progress=_progress, max_chunk_s=chunk_s,
+                            should_stop=self._stop.is_set))
+                        base[0] = self.progress[1]
+            except longform.Stopped as halt:
+                segs.extend(halt.partial)
+                stopped = True
+            finally:
+                del engine
             segs = longform.merge(segs)
             meetings.save_segments(mid, segs)
+            if stopped:
+                done, total = self.progress
+                meetings.set_status(
+                    mid, "stopped",
+                    f"Stopped by you after {done} of {total} parts. What was "
+                    "already read is kept below; the recording is unchanged.")
+                return
             m = meetings.get(mid)
         # no segments = nothing was said (or nothing was captured). Summarising an
         # empty transcript wakes Ollama for seconds to produce nothing.

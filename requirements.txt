@@ -1,5 +1,7 @@
 sherpa-onnx==1.13.6
 sounddevice
+# Optional Whisper for meetings (MIT). The model file is not bundled.
+pywhispercpp==1.5.1
 pyaudiowpatch
 # Meeting FILE IMPORT only, and NOT bundled in the installer: PyAV's wheel
 # carries GPL ffmpeg encoders and Hemsa is MIT. See THIRD-PARTY-NOTICES.md.
