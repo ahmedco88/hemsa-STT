@@ -21,6 +21,13 @@ Not bundled: it is downloaded on first run to `%LOCALAPPDATA%\Hemsa\models\`.
   channel needs the loopback patch, and the microphone goes through the same
   library. Dictation does not use it.
 
+## Reading the text field back
+
+**comtypes** (Thomas Heller and contributors) - **MIT**. Talks to Windows' own UI
+Automation, so Hemsa can check that a paste arrived and notice a word you corrected
+straight afterwards. What it reads stays in memory and is never written to disk or
+the log.
+
 ## Whisper (optional, meetings only)
 
 `pywhispercpp` (MIT) wraps `whisper.cpp` (MIT) and ships in the installer. The Whisper

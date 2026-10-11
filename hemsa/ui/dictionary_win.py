@@ -84,6 +84,14 @@ class DictionaryPage(tk.Frame):
         self.text.edit_reset()
         self.text.focus_set()
 
+    def add_line(self, word: str) -> None:
+        """A word added from the chip while this page is open. Appended to the box
+        rather than reloading it: a reload would throw away unsaved typing, and the
+        next Save would write the box, without the new word, over the file."""
+        lines = [s.strip() for s in self.text.get("1.0", "end").splitlines()]
+        if word not in lines:
+            self.text.insert("end-1c", ("\n" if any(lines) else "") + word)
+
     def _save(self) -> None:
         words = [line.strip() for line in self.text.get("1.0", "end").splitlines()]
         dictionary.save([w for w in words if w])

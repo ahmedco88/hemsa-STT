@@ -4,10 +4,13 @@ the contract is "return the polished text, or None and the caller pastes raw".
 No retries, no streaming, no sentinel strings - one attempt, one boundary.
 """
 
+import ctypes
 import logging
+import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 
 import requests
@@ -172,7 +175,7 @@ def clean(text: str, cfg: dict) -> tuple[str | None, list[str]]:
                 ],
                 "stream": False,
                 "think": False,
-                "keep_alive": "30m",
+                "keep_alive": cfg.get("ollama_keep_alive", "30m"),
                 "options": {"temperature": 0,
                             # generous cap so a repeat-loop becomes detectable truncation
                             "num_predict": max(512, len(text))},
@@ -205,7 +208,7 @@ def warm_up(cfg: dict) -> None:
     try:
         requests.post(f"{cfg['ollama_url']}/api/chat",
                       json={"model": cfg["cleanup_model"], "messages": [],
-                            "keep_alive": "30m"},
+                            "keep_alive": cfg.get("ollama_keep_alive", "30m")},
                       timeout=(1.0, 30))
     except Exception:
         pass
@@ -251,6 +254,26 @@ def probe(cfg: dict) -> tuple[str, list[str]]:
     return ("ready" if ok else "no model"), names
 
 
+def unload(cfg: dict) -> bool:
+    """Free Hemsa's model from Ollama's memory now (on quit). True if it was loaded.
+
+    Asks /api/ps first: an empty request for a model that is NOT loaded makes Ollama
+    load it, which would cost seconds and gigabytes on the way out. Only Hemsa's own
+    cleanup_model is touched, and the server keeps running: other apps on this PC
+    may use the same Ollama."""
+    url, model = cfg["ollama_url"], cfg["cleanup_model"]
+    try:
+        loaded = requests.get(f"{url}/api/ps", timeout=(0.3, 1.5)).json().get("models", [])
+        if model not in {m.get("name") for m in loaded} | {m.get("model") for m in loaded}:
+            return False
+        requests.post(f"{url}/api/generate", json={"model": model, "keep_alive": 0},
+                      timeout=(0.3, 2))
+        log.info("unloaded %s from Ollama on quit", model)
+        return True
+    except Exception:
+        return False          # Ollama down or slow: quitting must never wait on it
+
+
 def status(cfg: dict) -> str:
     """'ready' | 'no model' | 'down' - for the settings/tray status dot."""
     return probe(cfg)[0]
@@ -269,9 +292,22 @@ def start_server() -> str:
     if not exe:
         return ("Could not find Ollama on this PC. Install it from ollama.com, "
                 "then press Check again.")
+    bundle = getattr(sys, "_MEIPASS", None)
     try:
+        if bundle:
+            # The packaged exe's bootloader points the DLL search at its own folder,
+            # and a child INHERITS that. Ollama, and the llama-server it spawns, then
+            # loaded VCRUNTIME140.dll from Hemsa's install folder and held it, so
+            # the next Hemsa installer failed "DeleteFile, code 5" (found 2026-10-12).
+            # Reset for the launch only; our own later DLL loads need it back.
+            ctypes.windll.kernel32.SetDllDirectoryW(None)
+        env = dict(os.environ)
+        if bundle:
+            env["PATH"] = os.pathsep.join(
+                p for p in env.get("PATH", "").split(os.pathsep)
+                if p and not os.path.normcase(p).startswith(os.path.normcase(bundle)))
         subprocess.Popen(
-            [exe, "serve"],
+            [exe, "serve"], env=env, cwd=os.path.dirname(exe),
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, close_fds=True,
             creationflags=subprocess.DETACHED_PROCESS
@@ -279,5 +315,8 @@ def start_server() -> str:
     except OSError as exc:
         log.exception("could not start ollama")
         return f"Could not start Ollama: {exc}"
+    finally:
+        if bundle:
+            ctypes.windll.kernel32.SetDllDirectoryW(bundle)
     log.info("started ollama serve from %s", exe)
     return ""

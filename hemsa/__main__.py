@@ -9,9 +9,11 @@ import sys
 import tkinter as tk
 from pathlib import Path
 
-from . import config, controller, hotkey as hotkey_mod, meeting_jobs, meetings, \
-    model_manifest, palette, winutil
+from . import config, controller, hotkey as hotkey_mod, meeting_detect, meeting_jobs, \
+    meetings, model_manifest, palette, winutil
 from .engine import Engine
+
+MEETING_POLL_MS = 5000   # meeting-app mic check; one registry scan, measured 1.4 ms
 from .ui import copy_chip as chip_mod, hud as hud_mod, meetings_win as meetings_win_mod, \
     orb as orb_mod, orb_menu as orb_menu_mod, shell as shell_mod, theme as theme_mod, \
     tray as tray_mod
@@ -85,6 +87,8 @@ class App:
         self.ctl.on_state = self._on_state
         self.ctl.on_paste_risk = self.chip.flash
         self.ctl.on_cleanup_blocked = self.chip.notice
+        self.ctl.on_preview = self.hud.set_text
+        self.ctl.on_learn_offer = lambda word: self.chip.offer(word, self._add_word)
 
         self.hotkey = hotkey_mod.Hotkey(
             lambda: self.post(self.ctl.hotkey_press),
@@ -94,6 +98,8 @@ class App:
 
         self.tray = tray_mod.build(self)
         self.tray.run_detached()
+        self._detector = meeting_detect.Detector()
+        self.root.after(MEETING_POLL_MS, self._poll_meeting_apps)
 
         # 15 ms, not 30: this pump is the only path from the hotkey thread to the
         # recorder gate, so its interval is a direct floor on press-to-listening lag.
@@ -140,9 +146,37 @@ class App:
     def open_meetings(self) -> None:
         self.shell.show("meetings")
 
+    def _poll_meeting_apps(self) -> None:
+        """Offer to record when a meeting app opens the mic. Never records itself.
+        Off by default: a recorded consultation needs consent, so it is opt-in."""
+        try:
+            if self.cfg.get("meeting_prompt"):
+                new = self._detector.poll(meeting_detect.meeting_apps_on_mic())
+                if new and not self.jobs.recording_id:
+                    self.chip.ask(f"{new[0]} is using your mic. Record?",
+                                  "click to record. Get everyone's consent first.",
+                                  self._record_from_prompt, "Recording", "see the Meetings page")
+        except Exception:
+            logging.getLogger("hemsa").exception("meeting app check failed")
+        self.root.after(MEETING_POLL_MS, self._poll_meeting_apps)
+
+    def _record_from_prompt(self) -> None:
+        """Through the Meetings page's own Record button, so its Ollama warning and
+        any capture error show exactly as they would for a click there."""
+        self.open_meetings()
+        if not self.jobs.recording_id:
+            self.shell.page("meetings").toggle_record()
+
+    def _add_word(self, word: str) -> None:
+        self.ctl.add_word(word)
+        if self.shell.current == "words":
+            self.shell.page("words").add_line(word)
+
     # ---- controller -> UI ----
     def _on_state(self, state: str) -> None:
-        self.hud.set_state(state, cleanup_on=self.cfg.get("cleanup_mode") == "ai")
+        if state == "recording":
+            self.hud.set_target(self.ctl._target_hwnd)
+        self.hud.set_state(state, cleanup_on=self.ctl.cleanup_mode == "ai")
         if state == "recording":
             import time
             wait = (time.perf_counter() - hotkey_mod.LAST_PRESS) * 1000
@@ -246,6 +280,9 @@ class App:
                     self.jobs.stop_recording()
                 except Exception:
                     logging.getLogger("hemsa").exception("stopping the meeting recorder")
+            if self.cfg.get("unload_on_quit", True):
+                from . import cleanup
+                cleanup.unload(self.cfg)
             self.tray.stop()
         finally:
             self.root.destroy()

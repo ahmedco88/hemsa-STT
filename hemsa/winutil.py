@@ -208,6 +208,100 @@ def focus_window(hwnd: int) -> bool:
         return False
 
 
+def window_exe(hwnd: int) -> str:
+    """Full path of the program that owns hwnd, or "" if Windows will not say."""
+    try:
+        user32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
+        pid = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(ctypes.c_void_p(hwnd), ctypes.byref(pid))
+        if not pid.value:
+            return ""
+        k32.OpenProcess.restype = ctypes.c_void_p
+        h = k32.OpenProcess(0x1000, False, pid.value)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return ""
+        try:
+            buf = ctypes.create_unicode_buffer(1024)
+            size = ctypes.c_ulong(len(buf))
+            if k32.QueryFullProcessImageNameW(ctypes.c_void_p(h), 0, buf, ctypes.byref(size)):
+                return buf.value
+            return ""
+        finally:
+            k32.CloseHandle(ctypes.c_void_p(h))
+    except Exception:
+        return ""
+
+
+def window_title(hwnd: int) -> str:
+    try:
+        buf = ctypes.create_unicode_buffer(512)
+        ctypes.windll.user32.GetWindowTextW(ctypes.c_void_p(hwnd), buf, len(buf))
+        return buf.value
+    except Exception:
+        return ""
+
+
+_icon_cache: dict[str, object] = {}
+
+
+def exe_icon(path: str):
+    """The program's own 32 px icon as a Pillow RGBA image, or None. Cached per
+    exe, because the pill asks on every recording start."""
+    if not path:
+        return None
+    if path in _icon_cache:
+        return _icon_cache[path]
+    img = None
+    try:
+        img = _extract_icon(path)
+    except Exception:
+        img = None
+    _icon_cache[path] = img
+    return img
+
+
+def _extract_icon(path: str):
+    from PIL import Image
+
+    shell32, user32, gdi32 = ctypes.windll.shell32, ctypes.windll.user32, ctypes.windll.gdi32
+    large = ctypes.c_void_p()
+    if not shell32.ExtractIconExW(path, 0, ctypes.byref(large), None, 1) or not large.value:
+        return None
+    S = 32
+
+    class BITMAPINFOHEADER(ctypes.Structure):
+        _fields_ = [("biSize", ctypes.c_uint32), ("biWidth", ctypes.c_int32),
+                    ("biHeight", ctypes.c_int32), ("biPlanes", ctypes.c_uint16),
+                    ("biBitCount", ctypes.c_uint16), ("biCompression", ctypes.c_uint32),
+                    ("biSizeImage", ctypes.c_uint32), ("biXPelsPerMeter", ctypes.c_int32),
+                    ("biYPelsPerMeter", ctypes.c_int32), ("biClrUsed", ctypes.c_uint32),
+                    ("biClrImportant", ctypes.c_uint32)]
+
+    gdi32.CreateCompatibleDC.restype = ctypes.c_void_p
+    gdi32.CreateDIBSection.restype = ctypes.c_void_p
+    gdi32.SelectObject.restype = ctypes.c_void_p
+    hdc = gdi32.CreateCompatibleDC(None)
+    bits = ctypes.c_void_p()
+    bmi = BITMAPINFOHEADER(ctypes.sizeof(BITMAPINFOHEADER), S, -S, 1, 32, 0, 0, 0, 0, 0, 0)
+    dib = gdi32.CreateDIBSection(ctypes.c_void_p(hdc), ctypes.byref(bmi), 0,
+                                 ctypes.byref(bits), None, 0)
+    try:
+        old = gdi32.SelectObject(ctypes.c_void_p(hdc), ctypes.c_void_p(dib))
+        user32.DrawIconEx(ctypes.c_void_p(hdc), 0, 0, large, S, S, 0, None, 3)  # DI_NORMAL
+        raw = ctypes.string_at(bits, S * S * 4)
+        gdi32.SelectObject(ctypes.c_void_p(hdc), ctypes.c_void_p(old))
+    finally:
+        gdi32.DeleteObject(ctypes.c_void_p(dib))
+        gdi32.DeleteDC(ctypes.c_void_p(hdc))
+        user32.DestroyIcon(large)
+    img = Image.frombuffer("RGBA", (S, S), raw, "raw", "BGRA", 0, 1).copy()
+    if img.getextrema()[3][1] == 0:
+        # an old icon with no alpha channel: DrawIconEx left alpha at 0 everywhere,
+        # which would draw it fully transparent. Treat it as opaque instead.
+        img.putalpha(255)
+    return img
+
+
 _mutex = None
 
 

@@ -234,7 +234,23 @@ a medical question means inventing a dose.
   opened at all;
   long recordings are cut on silence into chunks before transcription, and the
   summary uses the same local `qwen3.5:2b` as cleanup. Imported files are decoded
-  with PyAV. Meetings are stored in `%LOCALAPPDATA%\Hemsa\`, like everything else.
+  with Windows' own codecs (PyAV too, when run from source). Meetings are stored in `%LOCALAPPDATA%\Hemsa\`, like everything else.
+- **Live words:** while you hold the key, the pill shows a rough draft of what you
+  have said so far (the last few seconds, re-read by the same Parakeet engine) and
+  the icon of the app the text will land in. Turn it off in Settings when sharing
+  your screen.
+- **Voice commands:** say "new line", "new paragraph", "comma", "full stop" or
+  "question mark" and the mark is written. "Period" and "colon" stay as words,
+  because notes use them. An optional send phrase ("send it"), said last, presses
+  Enter after typing. Any app can have its own cleanup mode.
+- **Did it arrive?** Hemsa reads the text box back through Windows UI Automation
+  (comtypes) after pasting, so the Copy text button appears when a paste really went
+  missing. If you then retype a misheard word, it offers to add your spelling to the
+  word list; it never adds one by itself. What it reads stays in memory, is never
+  logged, and a password box is never read.
+- **Offer to record calls (off by default):** when Teams, Zoom, Webex, Slack, Skype
+  or WhatsApp opens the microphone, Hemsa asks whether to record the meeting. It never
+  starts on its own, and calls in a browser are not noticed.
 - Python 3.12, tkinter, pystray, packaged with PyInstaller.
 
 ### What touches the network

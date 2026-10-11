@@ -26,6 +26,17 @@ _AUTOSTART_OK = "Hemsa opens in the tray when you sign in."
 _AUTOSTART_BLOCKED = ("Windows has this switched off under Task Manager, Startup apps. "
                       "Turn it back on there.")
 
+_KEEP = {"5m": "5 minutes", "30m": "30 minutes", "2h": "2 hours"}
+_SPOKEN_HINT = ('Say "new line", "new paragraph", "comma", "full stop" or "question '
+                'mark". "Period" and "colon" stay as words, since notes use them.')
+_SEND_OFF = "Off"
+_SEND_PHRASES = ("send it", "send message", "press enter")
+_SEND_HINT = ("Say it at the very END and Hemsa presses Enter after typing, e.g. to "
+              "send a chat message. Only at the end, never mid-sentence.")
+_APP_MODES = {"": "Same as above", **{m: config.CLEANUP_LABELS[m] for m in config.CLEANUP_MODES}}
+_APPS_HINT = ("Use a different cleanup in one app, e.g. Off in your clinical software. "
+              "Dictate into the app once, then add it here.")
+
 _HINTS = {
     "off": "Paste exactly what was heard.",
     "fast": "Removes um and uh, fixes spacing and capitals. Instant, and it can "
@@ -96,6 +107,19 @@ class SettingsPage(tk.Frame):
                      extra=self._apply_autostart)
         self.autostart_hint = self._last_hint
         self._toggle(body, "Sounds", "A soft tick on start and stop.", "sounds")
+        self._toggle(body, "Show words as I speak",
+                     "A rough draft in the pill while you talk. Turn it off when "
+                     "sharing your screen.", "live_preview")
+        self._toggle(body, "Fit text to the cursor",
+                     "Mid-sentence, adds the space and drops the capital and full stop. "
+                     "Names and acronyms keep their capitals.", "fit_to_cursor")
+        self._toggle(body, "Check the text arrived",
+                     "Reads the text box back after pasting, so the Copy text button "
+                     "appears only when it really went missing.", "verify_paste")
+        self._toggle(body, "Learn from my corrections",
+                     "Fix a word straight after dictating and Hemsa offers to add the "
+                     "spelling to your word list. Never adds it on its own.",
+                     "learn_corrections")
         self._toggle(body, "Floating orb", "Click it to dictate without the key.", "show_orb",
                      extra=lambda: self.app.orb.show(self.app.cfg["show_orb"]))
         self._toggle(body, "Check GitHub for updates on start",
@@ -139,6 +163,37 @@ class SettingsPage(tk.Frame):
         self._widgets.append(self.start_ollama)
         self._fill_models([], known=False)
 
+        right = self._row(body, "Keep the model loaded",
+                          "After each use. Shorter frees memory sooner; the next "
+                          "cleanup then waits a few seconds for the model to load.")
+        self.keep_var = tk.StringVar(value=_KEEP.get(cfg.get("ollama_keep_alive"), "30 minutes"))
+        keep = ttk.Combobox(right, textvariable=self.keep_var, state="readonly", width=17,
+                            values=list(_KEEP.values()), style="Hemsa.TCombobox")
+        keep.pack()
+        keep.bind("<<ComboboxSelected>>", lambda e: self._set(
+            "ollama_keep_alive", next(k for k, v in _KEEP.items() if v == self.keep_var.get())))
+
+        self._toggle(body, "Free the model when Hemsa quits",
+                     "Unloads Hemsa's model from Ollama's memory. Ollama itself keeps "
+                     "running for any other app that uses it.", "unload_on_quit")
+
+        body = self._card("Voice commands")
+        self._toggle(body, "Spoken punctuation", _SPOKEN_HINT, "spoken_punctuation",
+                     first=True)
+        right = self._row(body, "Send phrase", _SEND_HINT)
+        self.send_var = tk.StringVar(value=cfg.get("send_phrase") or _SEND_OFF)
+        send = ttk.Combobox(right, textvariable=self.send_var, state="readonly", width=17,
+                            values=[_SEND_OFF] + list(_SEND_PHRASES), style="Hemsa.TCombobox")
+        send.pack()
+        send.bind("<<ComboboxSelected>>", lambda e: self._set(
+            "send_phrase", "" if self.send_var.get() == _SEND_OFF else self.send_var.get()))
+
+        body = self._card("Per app")
+        self._apps_body = body
+        self._appw: list[tk.Widget] = []        # rebuilt on every change, restyled apart
+        self._app_widgets: list = []
+        self._build_apps()
+
         body = self._card("Meetings")
         right = self._row(body, "Transcription engine", _WHISPER_HINT, first=True)
         self.engine_hint = self._last_hint
@@ -156,6 +211,11 @@ class SettingsPage(tk.Frame):
                              style="Hemsa.TCombobox")
         mlang.pack()
         mlang.bind("<<ComboboxSelected>>", lambda e: self._set_meeting_language())
+        self._toggle(body, "Offer to record calls",
+                     "When Teams, Zoom, Webex, Slack, Skype or WhatsApp starts using the "
+                     "mic, Hemsa asks whether to record. It never starts by itself. Get "
+                     "everyone's consent before recording. Calls in a browser are not "
+                     "noticed.", "meeting_prompt")
 
         body = self._card("On this PC")
         self.engine_dot, self.engine_lbl = self._status_row(
@@ -168,6 +228,65 @@ class SettingsPage(tk.Frame):
                   style="Muted.TLabel").pack(anchor="w")
         ttk.Label(foot, text="Built by Ahmed Al-Obaidi", style="Muted.TLabel").pack(
             anchor="w", pady=(px(2), 0))
+
+    def _build_apps(self) -> None:
+        """The per-app list. Rebuilt whole on every change and on page show: a
+        handful of rows, and the Add button's label depends on the last target."""
+        for w in self._appw:
+            w.destroy()
+        self._appw, self._app_widgets, self._app_lines = [], [], []
+        body = self._apps_body
+        rules = self.app.cfg.get("app_rules") or {}
+
+        head = tk.Frame(body)
+        head.pack(fill="x", padx=px(20), pady=px(12))
+        self._appw.append(head)
+        ttk.Label(head, text=_APPS_HINT, style="CardMuted.TLabel", wraplength=px(440),
+                  justify="left").pack(side="left", anchor="w")
+        last = getattr(self.app.ctl, "last_app", "")
+        if last and last not in rules:
+            add = PillButton(head, f"Add {last}", kind="ghost", ground="CARD", padx=12,
+                             pady=5, command=lambda: self._set_app(last, ""))
+            add.pack(side="right")
+            self._app_widgets.append(add)
+
+        for app, rule in sorted(rules.items()):
+            line = tk.Frame(body, height=px(1))
+            line.pack(fill="x", padx=px(18))
+            self._appw.append(line)
+            self._app_lines.append(line)
+            row = tk.Frame(body)
+            row.pack(fill="x", padx=px(20), pady=px(10))
+            self._appw.append(row)
+            ttk.Label(row, text=app, style="CardName.TLabel").pack(side="left")
+            rm = PillButton(row, "Remove", kind="ghost", ground="CARD", padx=12, pady=5,
+                            command=lambda a=app: self._set_app(a, None))
+            rm.pack(side="right", padx=(px(10), 0))
+            self._app_widgets.append(rm)
+            var = tk.StringVar(row, value=_APP_MODES.get(rule.get("cleanup_mode", ""),
+                                                         _APP_MODES[""]))
+            box = ttk.Combobox(row, textvariable=var, state="readonly", width=17,
+                               values=list(_APP_MODES.values()), style="Hemsa.TCombobox")
+            box.pack(side="right")
+            box.bind("<<ComboboxSelected>>", lambda e, a=app, v=var: self._set_app(
+                a, next(k for k, n in _APP_MODES.items() if n == v.get())))
+        self._restyle_apps()
+
+    def _restyle_apps(self) -> None:
+        for w in self._appw:
+            w.configure(bg=P.LINE if w in self._app_lines else P.CARD)
+        for w in self._app_widgets:
+            w.restyle()
+
+    def _set_app(self, app: str, mode: str | None) -> None:
+        """mode None removes the rule; "" keeps the app listed on the global mode."""
+        rules = dict(self.app.cfg.get("app_rules") or {})
+        if mode is None:
+            rules.pop(app, None)
+        else:
+            rules[app] = {"cleanup_mode": mode} if mode else {}
+        self._set("app_rules", rules)
+        self._build_apps()
 
     def _card(self, eyebrow: str) -> tk.Frame:
         ttk.Label(self._page, text=eyebrow.upper(), style="Section.TLabel").pack(
@@ -200,8 +319,9 @@ class SettingsPage(tk.Frame):
         self._cardw.append(right)
         return right
 
-    def _toggle(self, body: tk.Frame, name: str, hint: str | None, key: str, extra=None) -> None:
-        right = self._row(body, name, hint)
+    def _toggle(self, body: tk.Frame, name: str, hint: str | None, key: str, extra=None,
+                first: bool = False) -> None:
+        right = self._row(body, name, hint, first=first)
         var = tk.BooleanVar(self, value=bool(self.app.cfg[key]))
         setattr(self, f"_var_{key}", var)
         tog = Toggle(right, var, command=lambda: (self._set(key, var.get()),
@@ -226,8 +346,14 @@ class SettingsPage(tk.Frame):
         self.mic_var.set(cfg.get("mic_device") or "System default")
         self.mode_var.set(config.CLEANUP_LABELS[cfg.get("cleanup_mode", "off")])
         self.model_var.set(cfg["cleanup_model"])
-        for key in ("autostart", "sounds", "show_orb", "update_check"):
+        for key in ("autostart", "sounds", "show_orb", "update_check", "live_preview",
+                    "spoken_punctuation", "verify_paste", "learn_corrections", "fit_to_cursor",
+                    "unload_on_quit",
+                    "meeting_prompt"):
             getattr(self, f"_var_{key}").set(bool(cfg[key]))
+        self.send_var.set(cfg.get("send_phrase") or _SEND_OFF)
+        self.keep_var.set(_KEEP.get(cfg.get("ollama_keep_alive"), "30 minutes"))
+        self._build_apps()
         self.meng_var.set(_ENGINES[cfg.get("meeting_engine", "parakeet")])
         self._update_engine_hint()
         self._update_hint()
@@ -438,4 +564,5 @@ class SettingsPage(tk.Frame):
             w.configure(bg=P.LINE)
         for w in self._widgets:
             w.restyle()
+        self._restyle_apps()
         self._paint_swatches()

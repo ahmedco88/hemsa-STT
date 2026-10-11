@@ -8,7 +8,11 @@ import glob
 import importlib.util
 import os
 
-from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
+
+import comtypes.client
+
+comtypes.client.GetModule("UIAutomationCore.dll")   # make sure the wrapper exists to bundle
 
 # pywhispercpp (MIT, optional Whisper for meetings) keeps its compiled core as a
 # top-level extension plus a hash-named whisper-*.dll in site-packages, which
@@ -51,7 +55,11 @@ a = Analysis(
         "requests",
         "pyaudiowpatch",
         "pywhispercpp.model", "_pywhispercpp",
-    ],
+    ]
+    # comtypes GENERATES its UI Automation wrapper on first use, into comtypes/gen.
+    # In the frozen app that folder is read-only, so the build bundles the wrapper
+    # the venv already generated (hemsa/uia.py imports it before generating).
+    + collect_submodules("comtypes.gen"),
     # Belt and braces: even if something pulls av into the dependency graph, it
     # must not reach the bundle. See the binaries note above.
     excludes=["pytest", "matplotlib", "av"],

@@ -27,3 +27,10 @@ def paste(text: str) -> None:
             except Exception:
                 pass
         threading.Thread(target=restore, daemon=True).start()
+
+
+def press_enter() -> None:
+    """The spoken send. The pause lets the target app apply the Ctrl+V first, or a
+    fast Enter can arrive before the text and send an empty message."""
+    time.sleep(0.15)
+    keyboard.send("enter")

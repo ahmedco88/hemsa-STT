@@ -329,7 +329,8 @@ def _chat(prompt_and_text, cfg):
     body = {"model": cfg["cleanup_model"],
             "messages": [{"role": "system", "content": system},
                          {"role": "user", "content": text}],
-            "stream": False, "think": False, "keep_alive": "30m",
+            "stream": False, "think": False,
+            "keep_alive": cfg.get("ollama_keep_alive", "30m"),
             # num_ctx explicit: Ollama's default (4096) silently drops the START
             # of a longer input, which is the system prompt. A long meeting's
             # reduce reply measured 958 tokens, so 1024 was one bad day from failing.

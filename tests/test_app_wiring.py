@@ -45,6 +45,8 @@ def app(root, monkeypatch, tmp_path):
         def __init__(self, cfg, engine, post):
             self._recorder = Recorder()
             self.state = "idle"
+            self.cleanup_mode = "off"
+            self._target_hwnd = 0
             self.last_text = ""
             self.on_state = None
             self.on_paste_risk = None
@@ -132,3 +134,36 @@ def test_theme_switch_and_meetings_change_reach_the_shell(app):
         assert app.shell._recording is False
     finally:
         app.set_theme(P.DEFAULT)
+
+
+def test_meeting_app_prompt_is_off_by_default_and_only_asks(app, monkeypatch):
+    """Recording a call needs consent: no prompt unless switched on, and the prompt
+    only ASKS - nothing records until the chip is clicked."""
+    asked = []
+    monkeypatch.setattr(app.chip, "ask", lambda *a: asked.append(a))
+    monkeypatch.setattr(main_mod_ref().meeting_detect, "meeting_apps_on_mic", lambda: {"Teams"})
+    assert app.cfg["meeting_prompt"] is False
+    app._poll_meeting_apps()
+    assert asked == []
+    app.cfg["meeting_prompt"] = True
+    app._poll_meeting_apps()
+    app._poll_meeting_apps()                 # same call still going: asked once
+    assert len(asked) == 1 and "Teams" in asked[0][0] and "consent" in asked[0][1]
+
+
+def test_no_prompt_while_already_recording(app, monkeypatch):
+    asked = []
+    monkeypatch.setattr(app.chip, "ask", lambda *a: asked.append(a))
+    monkeypatch.setattr(main_mod_ref().meeting_detect, "meeting_apps_on_mic", lambda: {"Zoom"})
+    app.cfg["meeting_prompt"] = True
+    app.jobs.recording_id = "abc"
+    try:
+        app._poll_meeting_apps()
+    finally:
+        app.jobs.recording_id = None
+    assert asked == []
+
+
+def main_mod_ref():
+    import hemsa.__main__ as m
+    return m

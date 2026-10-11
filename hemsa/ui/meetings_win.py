@@ -350,6 +350,10 @@ class MeetingsFrame(tk.Frame):
                 self._check_ollama()   # "Transcript only" makes the warning untrue
                 return
 
+    def toggle_record(self) -> None:
+        """The Record button, for the meeting-app prompt (App._record_from_prompt)."""
+        self._toggle_record()
+
     def _toggle_record(self) -> None:
         jobs = self._jobs()
         if jobs is None:

@@ -86,6 +86,69 @@ def test_start_server_launches_detached_and_says_nothing_on_success(monkeypatch)
     assert seen["flags"] & cleanup.subprocess.DETACHED_PROCESS
 
 
+def test_packaged_start_server_does_not_hand_ollama_our_dll_folder(monkeypatch, tmp_path):
+    """Frozen: the child must not inherit the bundle's DLL directory or PATH entry,
+    or Ollama locks Hemsa's VCRUNTIME140.dll and the next install fails."""
+    bundle = str(tmp_path / "_internal")
+    calls, seen = [], {}
+
+    class K32:
+        def SetDllDirectoryW(self, d):
+            calls.append(d)
+
+    def fake_popen(cmd, **kw):
+        seen["calls_at_launch"] = list(calls)
+        seen["env"] = kw["env"]
+        return object()
+
+    monkeypatch.setattr(cleanup.sys, "_MEIPASS", bundle, raising=False)
+    monkeypatch.setattr(cleanup.ctypes, "windll", type("W", (), {"kernel32": K32()})())
+    monkeypatch.setenv("PATH", bundle + cleanup.os.pathsep + r"C:\Windows")
+    monkeypatch.setattr(cleanup.shutil, "which", lambda name: r"C:\ollama\ollama.exe")
+    monkeypatch.setattr(cleanup.subprocess, "Popen", fake_popen)
+
+    assert cleanup.start_server() == ""
+    assert seen["calls_at_launch"] == [None]          # reset while launching
+    assert calls == [None, bundle]                    # and restored for us afterwards
+    assert bundle not in seen["env"]["PATH"]
+
+
+class _Resp:
+    def __init__(self, body):
+        self._body = body
+
+    def json(self):
+        return self._body
+
+
+CFG = {"ollama_url": "http://127.0.0.1:1", "cleanup_model": "qwen3.5:2b"}
+
+
+def test_unload_frees_only_our_model_when_it_is_loaded(monkeypatch):
+    posts = []
+    monkeypatch.setattr(cleanup.requests, "get", lambda url, timeout=None: _Resp(
+        {"models": [{"name": "qwen3.5:2b", "model": "qwen3.5:2b"}, {"name": "llama3:8b"}]}))
+    monkeypatch.setattr(cleanup.requests, "post",
+                        lambda url, json=None, timeout=None: posts.append(json))
+    assert cleanup.unload(CFG) is True
+    assert posts == [{"model": "qwen3.5:2b", "keep_alive": 0}]
+
+
+def test_unload_never_loads_a_model_that_is_not_in_memory(monkeypatch):
+    posts = []
+    monkeypatch.setattr(cleanup.requests, "get",
+                        lambda url, timeout=None: _Resp({"models": [{"name": "llama3:8b"}]}))
+    monkeypatch.setattr(cleanup.requests, "post", lambda *a, **k: posts.append(1))
+    assert cleanup.unload(CFG) is False and posts == []
+
+
+def test_unload_with_ollama_down_returns_quietly(monkeypatch):
+    def down(*a, **k):
+        raise cleanup.requests.ConnectionError("refused")
+    monkeypatch.setattr(cleanup.requests, "get", down)
+    assert cleanup.unload(CFG) is False
+
+
 def test_start_server_surfaces_an_oserror(monkeypatch):
     def boom(cmd, **kw):
         raise OSError("access denied")

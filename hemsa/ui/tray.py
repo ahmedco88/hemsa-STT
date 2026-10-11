@@ -9,15 +9,18 @@ from .. import config, palette as P
 
 
 def _icon_image(recording: bool = False) -> Image.Image:
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    """White disc, deep "h". The faint LINE rim keeps the disc's edge on a light
+    taskbar; a meeting swaps it for a thick REC ring, which still reads at 16 px.
+    Drawn at 256 so Windows downsamples rather than upscales (also the .ico source)."""
+    img = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.ellipse([2, 2, 62, 62], fill=P.REC if recording else P.DEEP)
+    d.ellipse([8, 8, 248, 248], fill=P.CARD,
+              outline=P.REC if recording else P.LINE, width=28 if recording else 8)
     try:
-        font = ImageFont.truetype("segoeui.ttf", 38)
+        font = ImageFont.truetype("segoeuib.ttf", 170)
     except OSError:
         font = ImageFont.load_default()
-    # deep is the rail surface, so the glyph is text-on-rail = paper
-    d.text((32, 29), "h", font=font, fill=P.PAPER, anchor="mm")
+    d.text((128, 114), "h", font=font, fill=P.DEEP, anchor="mm")
     return img
 
 

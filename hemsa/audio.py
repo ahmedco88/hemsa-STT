@@ -103,6 +103,16 @@ class Recorder:
         self.level = 0.0
         with self._lock:
             chunks, self._chunks = self._chunks, []
+        return self._join(chunks)
+
+    def snapshot(self) -> np.ndarray:
+        """The utterance SO FAR, same format as stop(), without closing the gate.
+        The live preview reads this while the user is still talking."""
+        with self._lock:
+            chunks = list(self._chunks)
+        return self._join(chunks)
+
+    def _join(self, chunks: list) -> np.ndarray:
         if not chunks:
             return np.zeros(0, dtype=np.float32)
         audio = np.concatenate(chunks)

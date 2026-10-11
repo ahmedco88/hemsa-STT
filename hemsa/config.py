@@ -42,12 +42,23 @@ DEFAULTS = {
     "ollama_url": "http://127.0.0.1:11434",   # not localhost - see _migrate
     "cleanup_model": "qwen3.5:2b",
     "models_dir": None,            # resolved lazily, see models_dir()
-    "silence_rms": 0.0015,         # skip near-silent clips (threshold proven in a sibling project)
+    "live_preview": True,          # show the words in the pill while recording
+    "spoken_punctuation": True,    # "new line", "comma"... written as the mark (fastclean.spoken)
+    "send_phrase": "",             # e.g. "send it": said LAST, presses Enter. "" = off
+    "app_rules": {},               # {"chrome.exe": {"cleanup_mode": "fast"}} per target app
+    "fit_to_cursor": True,         # space / capital / full stop to suit the cursor spot
+    "verify_paste": True,         # read the field back to decide the rescue chip (uia.py)
+    "learn_corrections": True,     # offer a word you retyped after a paste for the list
+    "unload_on_quit": True,        # free Hemsa's model from Ollama's memory when Hemsa quits
+    "ollama_keep_alive": "30m",  # how long Ollama keeps the model in RAM after a request
+    "silence_rms": 0.0015,        # skip near-silent clips (threshold proven in a sibling project)
     "history_cap": 200,
     "meeting_treatment": "ai",     # ai = transcript + summary, fast = transcript only
     "meeting_source": "both",      # both = mic + system audio, mic = microphone only
     "meeting_engine": "parakeet",  # parakeet | whisper (meetings only, never dictation)
     "meeting_language": "en",      # Whisper only: en | ar | auto
+    "meeting_prompt": False,       # offer to record when Teams/Zoom/... opens the mic.
+                                   # OFF by default: recording a call needs consent
 }
 
 

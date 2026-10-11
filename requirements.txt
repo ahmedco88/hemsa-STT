@@ -13,5 +13,7 @@ pystray
 Pillow
 keyboard
 pyperclip
+# UI Automation: paste check + learn-from-corrections (MIT)
+comtypes
 pytest
 pyinstaller

@@ -20,6 +20,7 @@ W, H = 108, 34           # logical; self.w / self.h are the px() ones
 PAD = 18                 # logical, either side of a measured label
 SHOW_MS = 7000
 NOTICE_MS = 11000        # longer: it is read, not clicked, and it is a safety message
+OFFER_MS = 9000          # "add this word?": read, then maybe clicked
 
 
 class CopyChip:
@@ -35,15 +36,39 @@ class CopyChip:
         self.canvas = tk.Canvas(self.win, width=self.w, height=self.h,
                                 bg=P.TRANSPARENT_KEY, highlightthickness=0)
         self.canvas.pack()
-        self.canvas.bind("<ButtonRelease-1>", lambda e: self._copy())
+        self._on_click = self._copy
+        self.canvas.bind("<ButtonRelease-1>", lambda e: self._on_click())
         self.win.withdraw()
         winutil.set_noactivate(self.win)
         self._hide_job = None
 
     def flash(self) -> None:
         """Show next to the orb, auto-hide after SHOW_MS."""
+        self._on_click = self._copy
         self._draw("Copy text")
         self._place(SHOW_MS)
+
+    def offer(self, word: str, on_yes) -> None:
+        """'You corrected this, add it to the word list?' One click adds it; no
+        click and it simply goes away. Never added on its own: the user decides."""
+        self.ask(f"Add “{word}” to words?", "click to add, or ignore it",
+                 lambda: on_yes(word), "Added ✓", "the word list could not be read")
+
+    def ask(self, label: str, detail: str, action, done: str, failed: str) -> None:
+        """A question answered by one click; ignoring it is the "no"."""
+        def yes():
+            self._on_click = lambda: None
+            try:
+                action()
+            except Exception:
+                self._draw("Could not do that", failed)
+                self._schedule_hide(NOTICE_MS)
+                return
+            self._draw(done)
+            self._schedule_hide(1200)
+        self._on_click = yes
+        self._draw(label, detail, warn=False)
+        self._place(OFFER_MS)
 
     def notice(self, numbers: list[str]) -> None:
         """Say that a cleanup was REFUSED because the model invented a number.
@@ -55,6 +80,7 @@ class CopyChip:
         It exists because a refusal is otherwise indistinguishable from Ollama being
         stopped: both leave the user looking at their own untidied words. That
         ambiguity is what made "test your own model" impossible to act on."""
+        self._on_click = self._copy
         self._draw("Cleanup blocked",
                    f"it added {', '.join(numbers[:3])}, which you did not say")
         self._place(NOTICE_MS)
@@ -88,15 +114,17 @@ class CopyChip:
         self._draw("Copied ✓")
         self._schedule_hide(1200)
 
-    def _draw(self, label: str, detail: str = "") -> None:
+    def _draw(self, label: str, detail: str = "", warn: bool = True) -> None:
         """One pill, one or two lines. The width is measured rather than fixed once a
         detail line is involved, because a clipped safety message is worse than none."""
         c = self.canvas
+        head = P.WARN if warn else P.DARK_INK
         if detail:
-            metric = tkfont.Font(root=self.win, font=theme.F.dark_small)
-            self.w = metric.measure(detail) + 2 * px(PAD)
+            small = tkfont.Font(root=self.win, font=theme.F.dark_small)
+            bold = tkfont.Font(root=self.win, font=theme.F.dark_bold)
+            self.w = max(small.measure(detail), bold.measure(label)) + 2 * px(PAD)
             self.h = px(H) + px(16)
-            edge = P.WARN
+            edge = P.WARN if warn else P.DARK_ACCENT
         else:
             self.w, self.h = px(W), px(H)
             edge = P.DARK_ACCENT
@@ -113,7 +141,7 @@ class CopyChip:
             c.create_text(w / 2, h / 2, text=label, fill=P.DARK_INK,
                           font=theme.F.dark_bold)
             return
-        c.create_text(w / 2, h / 2 - px(9), text=label, fill=P.WARN,
+        c.create_text(w / 2, h / 2 - px(9), text=label, fill=head,
                       font=theme.F.dark_bold)
         c.create_text(w / 2, h / 2 + px(9), text=detail, fill=P.DARK_MUTED,
                       font=theme.F.dark_small)
